@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using TeamsBot.Core.Interfaces;
+using TeamsBot.Server.Controllers;
 using TeamsBot.Server.Services;
 using TeamsBot.Signaling.Controllers;
 using TeamsBot.Storage.Services;
@@ -10,6 +11,7 @@ using TeamsBot.Transcription.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.WebHost.PreferHostingUrls(true);
 builder.WebHost.UseUrls("http://localhost:5001", "http://localhost:5000");
 
 builder.Services.AddHttpClient();
@@ -30,10 +32,12 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+       .AddApplicationPart(typeof(AuthController).Assembly);
 
 var app = builder.Build();
 
+app.UseRouting();
 app.UseCors("AllowAll");
 
 app.MapGet("/", () => "Teams Recording Bot Server is running!");
