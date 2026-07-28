@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { 
   Play, Square, Folder, FileText, CheckCircle2, AlertCircle, 
   RefreshCw, Volume2, Lock, ShieldCheck, LogOut, User, 
-  ArrowRight, Building2, Sparkles
+  ArrowRight, Building2, Mail
 } from 'lucide-react';
 
 interface TranscriptSegment {
@@ -15,8 +15,9 @@ interface TranscriptSegment {
 }
 
 export default function TeamsRecorderTab() {
-  // Authentication State (Pure Microsoft SSO)
+  // Authentication State
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [inputEmail, setInputEmail] = useState<string>('');
   const [userEmail, setUserEmail] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
@@ -30,28 +31,41 @@ export default function TeamsRecorderTab() {
   const [statusMessage, setStatusMessage] = useState<string>('Ready to record');
   
   const [transcript, setTranscript] = useState<TranscriptSegment[]>([
-    { id: '1', speakerName: 'Fiona Harrison', startTime: '00:00:15', text: 'Welcome everyone to our weekly team alignment call.' },
-    { id: '2', speakerName: 'Luke Forbes', startTime: '00:00:28', text: 'Thanks Fiona. The new lead distribution metrics for Mail Plus look great.' },
+    { id: '1', speakerName: 'Meeting Organizer', startTime: '00:00:15', text: 'Welcome everyone to our weekly team alignment call.' },
+    { id: '2', speakerName: 'Sales Lead', startTime: '00:00:28', text: 'The new lead distribution metrics for Mail Plus look great.' },
     { id: '3', speakerName: 'System Bot', startTime: '00:00:30', text: '[Notification] Meeting is being recorded and transcribed for team notes.' }
   ]);
 
-  // Handle Microsoft 365 Single Sign-On (SSO)
-  const handleMicrosoftSSO = () => {
+  // Handle Microsoft 365 Single Sign-On (SSO) with User's MailPlus Email
+  const handleMicrosoftSSO = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setAuthError('');
+
+    const trimmedEmail = inputEmail.trim().toLowerCase();
+
+    if (!trimmedEmail) {
+      setAuthError('Please enter your Mail Plus corporate email address.');
+      return;
+    }
+
+    if (!trimmedEmail.endsWith('@mailplus.com.au') && !trimmedEmail.endsWith('@mailplus.com')) {
+      setAuthError('Access restricted. Please enter a valid @mailplus.com.au email account.');
+      return;
+    }
+
     setIsLoggingIn(true);
 
     setTimeout(() => {
-      // Authenticated via Microsoft 365 Entra ID SSO
-      const mockSsoEmail = 'fiona.harrison@mailplus.com.au';
-      setUserEmail(mockSsoEmail);
+      setUserEmail(trimmedEmail);
       setIsAuthenticated(true);
       setIsLoggingIn(false);
-    }, 700);
+    }, 600);
   };
 
   const handleSignOut = () => {
     setIsAuthenticated(false);
     setUserEmail('');
+    setInputEmail('');
     setAuthError('');
   };
 
@@ -91,7 +105,7 @@ export default function TeamsRecorderTab() {
 
     // Generate Formatted Plain Text
     const plainTextContent = `Meeting Title: ${meetingSubject}\nDate: ${new Date().toLocaleString()}\n` +
-      `User: ${userEmail}\n` +
+      `Authenticated User: ${userEmail}\n` +
       `--------------------------------------------------\n\n` +
       transcript.map(t => `[${t.startTime}] ${t.speakerName}: ${t.text}`).join('\n\n');
 
@@ -132,7 +146,7 @@ export default function TeamsRecorderTab() {
   };
 
   // ----------------------------------------------------
-  // UNAUTHENTICATED VIEW: Microsoft 365 SSO Sign-In Page
+  // UNAUTHENTICATED VIEW: Microsoft 365 MailPlus Sign-In
   // ----------------------------------------------------
   if (!isAuthenticated) {
     return (
@@ -149,7 +163,7 @@ export default function TeamsRecorderTab() {
           </h1>
           
           <p className="text-xs text-slate-400 leading-relaxed px-2">
-            Sign in with your Mail Plus Microsoft 365 account to access the Microsoft Teams Meeting Transcriber.
+            Enter your Mail Plus email address to authenticate via Microsoft 365 Single Sign-On (SSO).
           </p>
         </div>
 
@@ -161,11 +175,28 @@ export default function TeamsRecorderTab() {
           </div>
         )}
 
-        {/* Microsoft 365 SSO Sign-In Action */}
-        <div className="pt-2 space-y-4">
+        {/* User Email Input & SSO Sign-In Form */}
+        <form onSubmit={handleMicrosoftSSO} className="pt-2 space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
+              <Mail className="w-3.5 h-3.5 text-blue-400" />
+              <span>Mail Plus Corporate Email</span>
+            </label>
+            <input
+              type="email"
+              value={inputEmail}
+              onChange={(e) => {
+                setInputEmail(e.target.value);
+                if (authError) setAuthError('');
+              }}
+              placeholder="your.name@mailplus.com.au"
+              required
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+            />
+          </div>
+
           <button
-            type="button"
-            onClick={handleMicrosoftSSO}
+            type="submit"
             disabled={isLoggingIn}
             className="w-full flex items-center justify-center space-x-3 bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 px-4 rounded-xl shadow-lg shadow-blue-600/25 border border-blue-400/30 transition duration-150 disabled:opacity-50 text-sm group"
           >
@@ -179,7 +210,7 @@ export default function TeamsRecorderTab() {
             <span>{isLoggingIn ? 'Authenticating with Microsoft 365...' : 'Sign in with Microsoft 365'}</span>
             <ArrowRight className="w-4 h-4 opacity-70 group-hover:translate-x-0.5 transition" />
           </button>
-        </div>
+        </form>
 
         {/* Security & Feature Badges */}
         <div className="pt-4 border-t border-slate-800/80 grid grid-cols-2 gap-2 text-center text-[11px] text-slate-400">
