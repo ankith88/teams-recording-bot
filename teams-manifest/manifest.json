@@ -14,12 +14,12 @@
     "outline": "outline.png"
   },
   "name": {
-    "short": "Teams Recording Bot",
-    "full": "MailPlus Teams Meeting Recording & Transcription Bot"
+    "short": "Minutes.Plus",
+    "full": "Minutes.Plus - Teams Meeting Recording & AI Intelligence Bot"
   },
   "description": {
-    "short": "Record and transcribe Teams meetings for MailPlus",
-    "full": "Official MailPlus corporate tool for recording and transcribing Microsoft Teams meetings with automatic speaker attribution and local transcript export."
+    "short": "AI Teams meeting recording, transcription and minutes for MailPlus",
+    "full": "Official MailPlus corporate tool for recording and transcribing Microsoft Teams meetings with automatic speaker attribution, AI meeting summaries, action items, and local transcript export."
   },
   "accentColor": "#095C7B",
   "configurableTabs": [
@@ -32,7 +32,7 @@
   "staticTabs": [
     {
       "entityId": "teams-recording-bot-tab",
-      "name": "Teams Recorder",
+      "name": "Minutes.Plus",
       "contentUrl": "https://teams-recording-bot.vercel.app",
       "websiteUrl": "https://teams-recording-bot.vercel.app",
       "scopes": ["personal"]

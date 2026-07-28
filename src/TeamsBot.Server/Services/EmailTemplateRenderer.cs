@@ -12,7 +12,7 @@ namespace TeamsBot.Server.Services
             string name = ExtractFirstName(recipientEmail);
             string emailBodyHtml = $@"
                 <p style=""margin: 0 0 16px; font-size: 15px; color: #2d3748; font-family: 'Inter', system-ui, -apple-system, sans-serif; line-height: 1.6;"">
-                    You have requested access to the <strong>MailPlus Corporate Security Portal</strong> (Teams Recording & Transcription Bot).
+                    You have requested access to <strong>Minutes.Plus Security Portal</strong> (Teams Recording & AI Transcription Bot).
                 </p>
                 <p style=""margin: 0 0 12px; font-size: 14px; color: #4a5568; font-family: 'Inter', system-ui, -apple-system, sans-serif; font-weight: 600;"">
                     Your single-use 6-digit security verification code is:
@@ -47,7 +47,7 @@ namespace TeamsBot.Server.Services
 <head>
   <meta charset=""utf-8"" />
   <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"" />
-  <title>MailPlus Security Verification Code</title>
+  <title>Minutes.Plus Security Verification Code</title>
 </head>
 <body style=""margin: 0; padding: 0; width: 100% !important; background-color: #f4f7f8; font-family: 'Inter', system-ui, -apple-system, sans-serif;"">
   <table border=""0"" cellpadding=""0"" cellspacing=""0"" width=""100%"" style=""background-color: #f4f7f8; padding: 20px 0; width: 100%;"">

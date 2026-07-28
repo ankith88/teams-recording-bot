@@ -40,7 +40,7 @@ var app = builder.Build();
 app.UseRouting();
 app.UseCors("AllowAll");
 
-app.MapGet("/", () => "Teams Recording Bot Server is running!");
+app.MapGet("/", () => "Minutes.Plus Bot Server is running!");
 app.MapControllers();
 
 app.Run();
