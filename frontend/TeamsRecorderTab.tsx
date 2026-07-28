@@ -79,88 +79,7 @@ const generateTailoredMeetings = (email: string): UpcomingMeeting[] => {
 
 const defaultUpcomingMeetings: UpcomingMeeting[] = generateTailoredMeetings('ankith.ravindran@mailplus.com.au');
 
-const defaultRecordings: LocalRecording[] = [
-  {
-    id: 'rec-1',
-    title: 'Weekly_Sales_Sync_2026-07-28',
-    dateSaved: 'Yesterday at 04:15 PM',
-    formats: ['.txt', '.docx'],
-    savedToFolder: 'Documents/MailPlus Transcripts',
-    sizeKb: 14,
-    content: `Meeting Title: Weekly Sales Sync 2026-07-28\nDate: 2026-07-28 04:15:00\nAuthenticated MailPlus User: staff@mailplus.com.au\n--------------------------------------------------\n\n[00:00:15] Meeting Organizer: Welcome everyone to our weekly team alignment call.\n\n[00:00:28] Sales Lead: The new lead distribution metrics for Mail Plus look great.\n\n[00:00:45] Systems Admin: Azure App Service and Microsoft Teams bot connectivity have been verified.\n\n[00:01:20] Operations Manager: All regional hubs report 100% on-time dispatch rates.`,
-    aiSummary: {
-      overview: 'Weekly operational sync focused on Q3 MailPlus sales volume growth, regional dispatch performance metrics, and Microsoft Teams recording bot deployment.',
-      keyPoints: [
-        'Q3 regional lead distribution showed an 18% Quarter-over-Quarter increase across all hubs.',
-        'Azure App Service infrastructure and bot C# API endpoints verified 100% operational.',
-        'National hubs achieved 100% target dispatch times with zero logged delays.'
-      ],
-      actionItems: [
-        {
-          id: 'act-1',
-          task: 'Export Q3 lead distribution metrics report for executive review',
-          assignee: 'Sarah Jenkins (Ops)',
-          dueDate: 'Tomorrow at 5:00 PM',
-          status: 'IN_PROGRESS'
-        },
-        {
-          id: 'act-2',
-          task: 'Configure MS Graph real-time audio webhook endpoints in Azure',
-          assignee: 'Engineering Team',
-          dueDate: 'Friday, Aug 1',
-          status: 'PENDING'
-        },
-        {
-          id: 'act-3',
-          task: 'Verify franchisee automated transcript email delivery settings',
-          assignee: 'David Ross (Growth)',
-          dueDate: 'Done',
-          status: 'COMPLETED'
-        }
-      ],
-      decisions: [
-        'Adopted C# .NET 8 Web API console service as the official production backend for Teams Bot.',
-        'Enabled automatic local filesystem storage (.txt/.docx) for high security compliance.'
-      ]
-    }
-  },
-  {
-    id: 'rec-2',
-    title: 'Franchisee_Onboarding_Q3',
-    dateSaved: '2026-07-27 at 11:30 AM',
-    formats: ['.txt', '.docx', '.srt'],
-    savedToFolder: 'Downloads',
-    sizeKb: 22,
-    content: `Meeting Title: Franchisee Onboarding Q3\nDate: 2026-07-27 11:30:00\nAuthenticated MailPlus User: staff@mailplus.com.au\n--------------------------------------------------\n\n[00:00:05] Host: Good morning team, let us review the Q3 onboarding schedule for new franchisees.\n\n[00:00:30] Training Director: Systems training will commence next Monday at 9:00 AM.`,
-    aiSummary: {
-      overview: 'Onboarding orientation session outlining system access, logistics dispatch protocols, and software training schedules for incoming Q3 MailPlus franchisees.',
-      keyPoints: [
-        'Orientation date finalized for next Monday at 9:00 AM AEST.',
-        'All new franchisees will receive MailPlus Corporate Portal credentials via email authentication.',
-        'Dispatch hardware kits are scheduled for pre-shipment by Friday.'
-      ],
-      actionItems: [
-        {
-          id: 'act-4',
-          task: 'Send welcome packages and portal SSO login links to new franchisees',
-          assignee: 'Training Director',
-          dueDate: 'Monday 9:00 AM',
-          status: 'IN_PROGRESS'
-        },
-        {
-          id: 'act-5',
-          task: 'Confirm dispatch hardware delivery tracking numbers',
-          assignee: 'Logistics Team',
-          dueDate: 'Friday 3:00 PM',
-          status: 'PENDING'
-        }
-      ],
-      decisions: [
-        'Mandated 2-step single-use passcode SSO for all franchisee portal users.'
-      ]
-    }
-  }
-];
+const defaultRecordings: LocalRecording[] = [];
 
 export default function TeamsRecorderTab() {
   // Authentication State (2-Step Email Verification Code SSO)
@@ -306,15 +225,20 @@ export default function TeamsRecorderTab() {
       const stored = localStorage.getItem('mailplus_local_recordings');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setSavedRecordings(parsed);
+        if (Array.isArray(parsed)) {
+          // Filter out legacy sample mock recordings if present
+          const cleanRecordings = parsed.filter(
+            (r: LocalRecording) => r.id !== 'rec-1' && r.id !== 'rec-2' && !r.title.includes('Weekly_Sales_Sync') && !r.title.includes('Franchisee_Onboarding')
+          );
+          setSavedRecordings(cleanRecordings);
+          localStorage.setItem('mailplus_local_recordings', JSON.stringify(cleanRecordings));
           return;
         }
       }
-      setSavedRecordings(defaultRecordings);
-      localStorage.setItem('mailplus_local_recordings', JSON.stringify(defaultRecordings));
+      setSavedRecordings([]);
+      localStorage.setItem('mailplus_local_recordings', JSON.stringify([]));
     } catch (e) {
-      setSavedRecordings(defaultRecordings);
+      setSavedRecordings([]);
     }
   }, []);
 
