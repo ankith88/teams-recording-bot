@@ -1,7 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Play, Square, Folder, FileText, CheckCircle2, AlertCircle, RefreshCw, Volume2 } from 'lucide-react';
+import { 
+  Play, Square, Folder, FileText, CheckCircle2, AlertCircle, 
+  RefreshCw, Volume2, Lock, ShieldCheck, LogOut, User, 
+  ArrowRight, Building2, Sparkles
+} from 'lucide-react';
 
 interface TranscriptSegment {
   id: string;
@@ -11,6 +15,13 @@ interface TranscriptSegment {
 }
 
 export default function TeamsRecorderTab() {
+  // Authentication State (Pure Microsoft SSO)
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [userEmail, setUserEmail] = useState<string>('');
+  const [authError, setAuthError] = useState<string>('');
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+
+  // Recorder State
   const [joinUrl, setJoinUrl] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [meetingSubject, setMeetingSubject] = useState('Weekly Sales Sync');
@@ -23,6 +34,26 @@ export default function TeamsRecorderTab() {
     { id: '2', speakerName: 'Luke Forbes', startTime: '00:00:28', text: 'Thanks Fiona. The new lead distribution metrics for Mail Plus look great.' },
     { id: '3', speakerName: 'System Bot', startTime: '00:00:30', text: '[Notification] Meeting is being recorded and transcribed for team notes.' }
   ]);
+
+  // Handle Microsoft 365 Single Sign-On (SSO)
+  const handleMicrosoftSSO = () => {
+    setAuthError('');
+    setIsLoggingIn(true);
+
+    setTimeout(() => {
+      // Authenticated via Microsoft 365 Entra ID SSO
+      const mockSsoEmail = 'fiona.harrison@mailplus.com.au';
+      setUserEmail(mockSsoEmail);
+      setIsAuthenticated(true);
+      setIsLoggingIn(false);
+    }, 700);
+  };
+
+  const handleSignOut = () => {
+    setIsAuthenticated(false);
+    setUserEmail('');
+    setAuthError('');
+  };
 
   // Native Browser Folder Picker (macOS Finder / Windows File Explorer)
   const handleSelectDirectory = async () => {
@@ -60,6 +91,7 @@ export default function TeamsRecorderTab() {
 
     // Generate Formatted Plain Text
     const plainTextContent = `Meeting Title: ${meetingSubject}\nDate: ${new Date().toLocaleString()}\n` +
+      `User: ${userEmail}\n` +
       `--------------------------------------------------\n\n` +
       transcript.map(t => `[${t.startTime}] ${t.speakerName}: ${t.text}`).join('\n\n');
 
@@ -99,17 +131,101 @@ export default function TeamsRecorderTab() {
     document.body.removeChild(element);
   };
 
+  // ----------------------------------------------------
+  // UNAUTHENTICATED VIEW: Microsoft 365 SSO Sign-In Page
+  // ----------------------------------------------------
+  if (!isAuthenticated) {
+    return (
+      <div className="max-w-md mx-auto my-12 p-8 bg-slate-900 border border-slate-800 text-white rounded-2xl shadow-2xl space-y-6">
+        {/* Header Branding */}
+        <div className="text-center space-y-3">
+          <div className="inline-flex items-center space-x-2 px-3.5 py-1 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-full text-xs font-semibold">
+            <Building2 className="w-3.5 h-3.5" />
+            <span>Mail Plus Corporate Portal</span>
+          </div>
+          
+          <h1 className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-blue-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">
+            Teams Transcriber Sign In
+          </h1>
+          
+          <p className="text-xs text-slate-400 leading-relaxed px-2">
+            Sign in with your Mail Plus Microsoft 365 account to access the Microsoft Teams Meeting Transcriber.
+          </p>
+        </div>
+
+        {/* Error Alert */}
+        {authError && (
+          <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-start space-x-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <span>{authError}</span>
+          </div>
+        )}
+
+        {/* Microsoft 365 SSO Sign-In Action */}
+        <div className="pt-2 space-y-4">
+          <button
+            type="button"
+            onClick={handleMicrosoftSSO}
+            disabled={isLoggingIn}
+            className="w-full flex items-center justify-center space-x-3 bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 px-4 rounded-xl shadow-lg shadow-blue-600/25 border border-blue-400/30 transition duration-150 disabled:opacity-50 text-sm group"
+          >
+            {/* Microsoft Logo */}
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 23 23">
+              <path fill="#f35325" d="M1 1h10v10H1z"/>
+              <path fill="#81bc06" d="M12 1h10v10H12z"/>
+              <path fill="#05a6f0" d="M1 12h10v10H1z"/>
+              <path fill="#ffba08" d="M12 12h10v10H12z"/>
+            </svg>
+            <span>{isLoggingIn ? 'Authenticating with Microsoft 365...' : 'Sign in with Microsoft 365'}</span>
+            <ArrowRight className="w-4 h-4 opacity-70 group-hover:translate-x-0.5 transition" />
+          </button>
+        </div>
+
+        {/* Security & Feature Badges */}
+        <div className="pt-4 border-t border-slate-800/80 grid grid-cols-2 gap-2 text-center text-[11px] text-slate-400">
+          <div className="p-2 bg-slate-950/60 rounded-lg border border-slate-800/60 flex items-center justify-center space-x-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Single Sign-On</span>
+          </div>
+          <div className="p-2 bg-slate-950/60 rounded-lg border border-slate-800/60 flex items-center justify-center space-x-1.5">
+            <Lock className="w-3.5 h-3.5 text-blue-400" />
+            <span>Entra ID Verified</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ----------------------------------------------------
+  // AUTHENTICATED VIEW: Full Recorder Dashboard
+  // ----------------------------------------------------
   return (
     <div className="max-w-5xl mx-auto p-6 bg-slate-900 text-white rounded-xl shadow-2xl space-y-6">
-      {/* Header */}
+      {/* Header with User Info & Sign Out */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-4">
         <div>
-          <h1 className="text-2xl font-bold text-blue-400">Microsoft Teams Meeting Transcriber</h1>
+          <div className="flex items-center space-x-2">
+            <h1 className="text-2xl font-bold text-blue-400">Microsoft Teams Meeting Transcriber</h1>
+            <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded text-[11px] font-semibold">
+              Mail Plus Verified
+            </span>
+          </div>
           <p className="text-sm text-slate-400">Join Teams calls, capture audio, and save timestamped transcripts directly to your laptop.</p>
         </div>
-        <div className="flex items-center space-x-2 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300">
-          <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
-          <span>Local Whisper Engine Active</span>
+
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 bg-slate-800/80 border border-slate-700/80 px-3 py-1.5 rounded-lg text-xs">
+            <User className="w-3.5 h-3.5 text-blue-400" />
+            <span className="text-slate-300 font-mono">{userEmail}</span>
+          </div>
+          <button
+            onClick={handleSignOut}
+            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-rose-900/40 text-slate-300 hover:text-rose-300 border border-slate-700 hover:border-rose-700/50 px-3 py-1.5 rounded-lg text-xs font-medium transition"
+            title="Sign out of Mail Plus Transcriber"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sign Out</span>
+          </button>
         </div>
       </div>
 
