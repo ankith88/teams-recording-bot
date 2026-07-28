@@ -197,31 +197,31 @@ namespace TeamsBot.Server.Controllers
                 new UpcomingMeetingDto
                 {
                     Id = "meet-ankith-1",
-                    Subject = "MailPlus Technical Architecture & Bot Sync",
+                    Subject = "Pre Catch Up",
                     StartTime = "09:30 AM",
                     EndTime = "10:15 AM",
-                    Organizer = $"{displayName} (Lead Engineer)",
-                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_TechArch2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
+                    Organizer = $"{displayName} (Microsoft Teams Meeting)",
+                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_PreCatchUp2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
                     Status = "IN_PROGRESS"
                 },
                 new UpcomingMeetingDto
                 {
                     Id = "meet-ankith-2",
-                    Subject = "National Franchise Performance & Growth Sync",
+                    Subject = "MailPlus x J2 Prospect+ Training",
                     StartTime = "01:30 PM",
-                    EndTime = "02:15 PM",
-                    Organizer = $"{displayName} & David Ross",
-                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_FranchiseSync2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
+                    EndTime = "02:30 PM",
+                    Organizer = $"{displayName} (Microsoft Teams Meeting)",
+                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_ProspectPlusTraining2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
                     Status = "UPCOMING"
                 },
                 new UpcomingMeetingDto
                 {
                     Id = "meet-ankith-3",
-                    Subject = "Client Onboarding & Technical Setup",
+                    Subject = "National Franchise Performance & Growth Sync",
                     StartTime = "04:00 PM",
                     EndTime = "04:45 PM",
-                    Organizer = $"{displayName} (Technical Support)",
-                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_ClientOnboarding2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
+                    Organizer = $"{displayName} & David Ross",
+                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_FranchiseSync2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
                     Status = "UPCOMING"
                 }
             };

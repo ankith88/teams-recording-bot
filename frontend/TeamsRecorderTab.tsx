@@ -58,29 +58,29 @@ const generateTailoredMeetings = (email: string): UpcomingMeeting[] => {
   return [
     {
       id: 'meet-1',
-      subject: 'MailPlus Weekly Sales & Operations Alignment',
+      subject: 'Pre Catch Up',
       startTime: '09:30 AM',
       endTime: '10:15 AM',
-      organizer: `${name} (Ops Lead)`,
-      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_SalesAlignment2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
+      organizer: `${name} (Microsoft Teams Meeting)`,
+      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_PreCatchUp2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
       status: 'IN_PROGRESS'
     },
     {
       id: 'meet-2',
-      subject: 'National Franchise Performance & Growth Sync',
+      subject: 'MailPlus x J2 Prospect+ Training',
       startTime: '01:30 PM',
-      endTime: '02:15 PM',
-      organizer: `${name} & David Ross`,
-      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_FranchiseSync2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
+      endTime: '02:30 PM',
+      organizer: `${name} (Microsoft Teams Meeting)`,
+      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_ProspectPlusTraining2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
       status: 'UPCOMING'
     },
     {
       id: 'meet-3',
-      subject: 'Client Onboarding & Technical Setup',
+      subject: 'National Franchise Performance & Growth Sync',
       startTime: '04:00 PM',
       endTime: '04:45 PM',
-      organizer: `${name} (Technical Support)`,
-      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_ClientOnboarding2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
+      organizer: `${name} & David Ross`,
+      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_FranchiseSync2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
       status: 'UPCOMING'
     }
   ];
