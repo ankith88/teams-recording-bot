@@ -46,35 +46,47 @@ interface LocalRecording {
   aiSummary?: AiSummaryData;
 }
 
-const defaultUpcomingMeetings: UpcomingMeeting[] = [
-  {
-    id: 'meet-1',
-    subject: 'MailPlus Weekly Sales & Operations Alignment',
-    startTime: '09:30 AM',
-    endTime: '10:15 AM',
-    organizer: 'Sarah Jenkins (Ops Manager)',
-    joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_SalesAlignment2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
-    status: 'IN_PROGRESS'
-  },
-  {
-    id: 'meet-2',
-    subject: 'National Franchise Performance & Growth Sync',
-    startTime: '01:30 PM',
-    endTime: '02:15 PM',
-    organizer: 'David Ross (Head of Growth)',
-    joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_FranchiseSync2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
-    status: 'UPCOMING'
-  },
-  {
-    id: 'meet-3',
-    subject: 'Client Onboarding & Technical Setup',
-    startTime: '04:00 PM',
-    endTime: '04:45 PM',
-    organizer: 'Technical Support Team',
-    joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_ClientOnboarding2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
-    status: 'UPCOMING'
-  }
-];
+const formatDisplayName = (email: string) => {
+  if (!email) return 'Ankith Ravindran';
+  const username = email.split('@')[0];
+  const parts = username.split(/[._-]/).filter(Boolean);
+  return parts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+};
+
+const generateTailoredMeetings = (email: string): UpcomingMeeting[] => {
+  const name = formatDisplayName(email);
+  return [
+    {
+      id: 'meet-1',
+      subject: 'MailPlus Weekly Sales & Operations Alignment',
+      startTime: '09:30 AM',
+      endTime: '10:15 AM',
+      organizer: `${name} (Ops Lead)`,
+      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_SalesAlignment2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
+      status: 'IN_PROGRESS'
+    },
+    {
+      id: 'meet-2',
+      subject: 'National Franchise Performance & Growth Sync',
+      startTime: '01:30 PM',
+      endTime: '02:15 PM',
+      organizer: `${name} & David Ross`,
+      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_FranchiseSync2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
+      status: 'UPCOMING'
+    },
+    {
+      id: 'meet-3',
+      subject: 'Client Onboarding & Technical Setup',
+      startTime: '04:00 PM',
+      endTime: '04:45 PM',
+      organizer: `${name} (Technical Support)`,
+      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_ClientOnboarding2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
+      status: 'UPCOMING'
+    }
+  ];
+};
+
+const defaultUpcomingMeetings: UpcomingMeeting[] = generateTailoredMeetings('ankith.ravindran@mailplus.com.au');
 
 const defaultRecordings: LocalRecording[] = [
   {
@@ -194,6 +206,50 @@ export default function TeamsRecorderTab() {
   const [copiedContent, setCopiedContent] = useState<boolean>(false);
   const [selectedAiRecordingId, setSelectedAiRecordingId] = useState<string>('');
   const [isGeneratingAi, setIsGeneratingAi] = useState<boolean>(false);
+
+  // Fetch user meetings dynamically from Graph API backend or generate user-tailored list
+  const fetchUserMeetings = async (email: string) => {
+    setIsLoadingMeetings(true);
+    const targetEmail = email || userEmail || 'ankith.ravindran@mailplus.com.au';
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/api/calendar/meetings?email=${encodeURIComponent(targetEmail)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.meetings) && data.meetings.length > 0) {
+          setUpcomingMeetings(data.meetings);
+          setIsLoadingMeetings(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('[Calendar] Error fetching backend meetings:', err);
+    }
+    setUpcomingMeetings(generateTailoredMeetings(targetEmail));
+    setIsLoadingMeetings(false);
+  };
+
+  // Restore authenticated session from localStorage on mount
+  useEffect(() => {
+    try {
+      const storedUser = localStorage.getItem('mailplus_auth_user');
+      if (storedUser && !userEmail) {
+        setUserEmail(storedUser);
+        setIsAuthenticated(true);
+      }
+    } catch (e) {}
+  }, []);
+
+  // Update meetings whenever userEmail changes
+  useEffect(() => {
+    if (userEmail) {
+      try {
+        localStorage.setItem('mailplus_auth_user', userEmail);
+      } catch (e) {}
+      fetchUserMeetings(userEmail);
+    } else {
+      fetchUserMeetings('ankith.ravindran@mailplus.com.au');
+    }
+  }, [userEmail]);
 
   // Handle Microsoft 365 OAuth Redirect & Teams Native Tab Auto SSO
   useEffect(() => {
@@ -448,6 +504,9 @@ export default function TeamsRecorderTab() {
   };
 
   const handleSignOut = () => {
+    try {
+      localStorage.removeItem('mailplus_auth_user');
+    } catch (e) {}
     setIsAuthenticated(false);
     setAuthStep('EMAIL');
     setUserEmail('');
@@ -766,13 +825,10 @@ export default function TeamsRecorderTab() {
   };
 
   const handleRefreshData = () => {
-    setIsLoadingMeetings(true);
-    setTimeout(() => {
-      setIsLoadingMeetings(false);
-      if (selectedDirectory) {
-        scanDirectoryForRecordings(selectedDirectory);
-      }
-    }, 600);
+    fetchUserMeetings(userEmail || 'ankith.ravindran@mailplus.com.au');
+    if (selectedDirectory) {
+      scanDirectoryForRecordings(selectedDirectory);
+    }
   };
 
   const handleCopyTranscriptContent = (text: string) => {
