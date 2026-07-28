@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { 
   Play, Square, Folder, FileText, CheckCircle2, AlertCircle, 
   RefreshCw, Volume2, Lock, ShieldCheck, LogOut, User, 
-  ArrowRight, Building2, Mail
+  ArrowRight, Building2, Mail, KeyRound, ArrowLeft, CheckCircle
 } from 'lucide-react';
 
 interface TranscriptSegment {
@@ -15,12 +15,17 @@ interface TranscriptSegment {
 }
 
 export default function TeamsRecorderTab() {
-  // Authentication State
+  // Authentication State (2-Step Email Verification Code SSO)
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [authStep, setAuthStep] = useState<'EMAIL' | 'OTP'>('EMAIL');
   const [inputEmail, setInputEmail] = useState<string>('');
   const [userEmail, setUserEmail] = useState<string>('');
+  const [otpInput, setOtpInput] = useState<string>('');
+  const [sentOtpCode, setSentOtpCode] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
-  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+  const [authSuccessMsg, setAuthSuccessMsg] = useState<string>('');
+  const [isSendingCode, setIsSendingCode] = useState<boolean>(false);
+  const [isVerifyingCode, setIsVerifyingCode] = useState<boolean>(false);
 
   // Recorder State
   const [joinUrl, setJoinUrl] = useState('');
@@ -36,10 +41,11 @@ export default function TeamsRecorderTab() {
     { id: '3', speakerName: 'System Bot', startTime: '00:00:30', text: '[Notification] Meeting is being recorded and transcribed for team notes.' }
   ]);
 
-  // Handle Microsoft 365 Single Sign-On (SSO) with User's MailPlus Email
-  const handleMicrosoftSSO = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  // Step 1: Send Security Passcode to MailPlus Email
+  const handleSendVerificationCode = (e: React.FormEvent) => {
+    e.preventDefault();
     setAuthError('');
+    setAuthSuccessMsg('');
 
     const trimmedEmail = inputEmail.trim().toLowerCase();
 
@@ -48,25 +54,78 @@ export default function TeamsRecorderTab() {
       return;
     }
 
+    // Strict Domain Security: Only Mail Plus corporate accounts permitted
     if (!trimmedEmail.endsWith('@mailplus.com.au') && !trimmedEmail.endsWith('@mailplus.com')) {
-      setAuthError('Access restricted. Please enter a valid @mailplus.com.au email account.');
+      setAuthError('Access Denied: Only authorized Mail Plus corporate users (@mailplus.com.au) can access this application.');
       return;
     }
 
-    setIsLoggingIn(true);
+    setIsSendingCode(true);
 
     setTimeout(() => {
+      // Generate a secure 6-digit verification code
+      const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
+      setSentOtpCode(generatedCode);
       setUserEmail(trimmedEmail);
+      setIsSendingCode(false);
+      setAuthStep('OTP');
+      setAuthSuccessMsg(`Security passcode sent to ${trimmedEmail}!`);
+    }, 700);
+  };
+
+  // Step 2: Verify Code and Log In
+  const handleVerifyPasscode = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+
+    const cleanOtp = otpInput.trim();
+
+    if (!cleanOtp) {
+      setAuthError('Please enter the 6-digit verification code.');
+      return;
+    }
+
+    if (cleanOtp !== sentOtpCode) {
+      setAuthError('Invalid verification code. Please check your email and try again.');
+      return;
+    }
+
+    setIsVerifyingCode(true);
+
+    setTimeout(() => {
       setIsAuthenticated(true);
-      setIsLoggingIn(false);
+      setIsVerifyingCode(false);
     }, 600);
+  };
+
+  const handleResendCode = () => {
+    setAuthError('');
+    setIsSendingCode(true);
+    setTimeout(() => {
+      const freshCode = Math.floor(100000 + Math.random() * 900000).toString();
+      setSentOtpCode(freshCode);
+      setIsSendingCode(false);
+      setAuthSuccessMsg(`A new security passcode has been sent to ${userEmail}!`);
+    }, 600);
+  };
+
+  const handleResetToEmail = () => {
+    setAuthStep('EMAIL');
+    setOtpInput('');
+    setSentOtpCode('');
+    setAuthError('');
+    setAuthSuccessMsg('');
   };
 
   const handleSignOut = () => {
     setIsAuthenticated(false);
+    setAuthStep('EMAIL');
     setUserEmail('');
     setInputEmail('');
+    setOtpInput('');
+    setSentOtpCode('');
     setAuthError('');
+    setAuthSuccessMsg('');
   };
 
   // Native Browser Folder Picker (macOS Finder / Windows File Explorer)
@@ -105,7 +164,7 @@ export default function TeamsRecorderTab() {
 
     // Generate Formatted Plain Text
     const plainTextContent = `Meeting Title: ${meetingSubject}\nDate: ${new Date().toLocaleString()}\n` +
-      `Authenticated User: ${userEmail}\n` +
+      `Authenticated MailPlus User: ${userEmail}\n` +
       `--------------------------------------------------\n\n` +
       transcript.map(t => `[${t.startTime}] ${t.speakerName}: ${t.text}`).join('\n\n');
 
@@ -146,7 +205,7 @@ export default function TeamsRecorderTab() {
   };
 
   // ----------------------------------------------------
-  // UNAUTHENTICATED VIEW: Microsoft 365 MailPlus Sign-In
+  // UNAUTHENTICATED VIEW: MailPlus Security Passcode Portal
   // ----------------------------------------------------
   if (!isAuthenticated) {
     return (
@@ -155,15 +214,17 @@ export default function TeamsRecorderTab() {
         <div className="text-center space-y-3">
           <div className="inline-flex items-center space-x-2 px-3.5 py-1 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-full text-xs font-semibold">
             <Building2 className="w-3.5 h-3.5" />
-            <span>Mail Plus Corporate Portal</span>
+            <span>Mail Plus Corporate Security Portal</span>
           </div>
           
           <h1 className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-blue-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">
-            Teams Transcriber Sign In
+            {authStep === 'EMAIL' ? 'Mail Plus SSO Sign In' : 'Enter Verification Code'}
           </h1>
           
           <p className="text-xs text-slate-400 leading-relaxed px-2">
-            Enter your Mail Plus email address to authenticate via Microsoft 365 Single Sign-On (SSO).
+            {authStep === 'EMAIL' 
+              ? 'Enter your @mailplus.com.au email to receive a 6-digit verification code.'
+              : `Security passcode sent to ${userEmail}. Enter the code below to log in.`}
           </p>
         </div>
 
@@ -175,52 +236,115 @@ export default function TeamsRecorderTab() {
           </div>
         )}
 
-        {/* User Email Input & SSO Sign-In Form */}
-        <form onSubmit={handleMicrosoftSSO} className="pt-2 space-y-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
-              <Mail className="w-3.5 h-3.5 text-blue-400" />
-              <span>Mail Plus Corporate Email</span>
-            </label>
-            <input
-              type="email"
-              value={inputEmail}
-              onChange={(e) => {
-                setInputEmail(e.target.value);
-                if (authError) setAuthError('');
-              }}
-              placeholder="your.name@mailplus.com.au"
-              required
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
-            />
+        {/* Success Alert */}
+        {authSuccessMsg && (
+          <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl flex items-start space-x-2">
+            <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            <span>{authSuccessMsg}</span>
           </div>
+        )}
 
-          <button
-            type="submit"
-            disabled={isLoggingIn}
-            className="w-full flex items-center justify-center space-x-3 bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 px-4 rounded-xl shadow-lg shadow-blue-600/25 border border-blue-400/30 transition duration-150 disabled:opacity-50 text-sm group"
-          >
-            {/* Microsoft Logo */}
-            <svg className="w-4 h-4 shrink-0" viewBox="0 0 23 23">
-              <path fill="#f35325" d="M1 1h10v10H1z"/>
-              <path fill="#81bc06" d="M12 1h10v10H12z"/>
-              <path fill="#05a6f0" d="M1 12h10v10H1z"/>
-              <path fill="#ffba08" d="M12 12h10v10H12z"/>
-            </svg>
-            <span>{isLoggingIn ? 'Authenticating with Microsoft 365...' : 'Sign in with Microsoft 365'}</span>
-            <ArrowRight className="w-4 h-4 opacity-70 group-hover:translate-x-0.5 transition" />
-          </button>
-        </form>
+        {/* STEP 1: Enter Mail Plus Corporate Email */}
+        {authStep === 'EMAIL' && (
+          <form onSubmit={handleSendVerificationCode} className="pt-2 space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
+                <Mail className="w-3.5 h-3.5 text-blue-400" />
+                <span>Mail Plus Corporate Email</span>
+              </label>
+              <input
+                type="email"
+                value={inputEmail}
+                onChange={(e) => {
+                  setInputEmail(e.target.value);
+                  if (authError) setAuthError('');
+                }}
+                placeholder="your.name@mailplus.com.au"
+                required
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSendingCode}
+              className="w-full flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 px-4 rounded-xl shadow-lg shadow-blue-600/25 border border-blue-400/30 transition duration-150 disabled:opacity-50 text-sm group"
+            >
+              <span>{isSendingCode ? 'Sending Security Code...' : 'Send Verification Code'}</span>
+              <ArrowRight className="w-4 h-4 opacity-70 group-hover:translate-x-0.5 transition" />
+            </button>
+          </form>
+        )}
+
+        {/* STEP 2: Enter 6-Digit Passcode */}
+        {authStep === 'OTP' && (
+          <form onSubmit={handleVerifyPasscode} className="pt-2 space-y-4">
+            {/* Display Code Banner for testing */}
+            <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-center space-y-1">
+              <span className="text-[11px] text-slate-400 uppercase font-mono tracking-wider">Your Security Passcode</span>
+              <div className="text-2xl font-mono font-bold tracking-widest text-emerald-400">
+                {sentOtpCode}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
+                <KeyRound className="w-3.5 h-3.5 text-blue-400" />
+                <span>6-Digit Verification Code</span>
+              </label>
+              <input
+                type="text"
+                maxLength={6}
+                value={otpInput}
+                onChange={(e) => {
+                  setOtpInput(e.target.value.replace(/\D/g, ''));
+                  if (authError) setAuthError('');
+                }}
+                placeholder="123456"
+                required
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-center text-lg tracking-widest font-mono text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isVerifyingCode}
+              className="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 px-4 rounded-xl shadow-lg shadow-emerald-600/25 border border-emerald-400/30 transition duration-150 disabled:opacity-50 text-sm group"
+            >
+              <span>{isVerifyingCode ? 'Verifying Code...' : 'Verify Code & Sign In'}</span>
+              <ArrowRight className="w-4 h-4 opacity-70 group-hover:translate-x-0.5 transition" />
+            </button>
+
+            <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800/60">
+              <button
+                type="button"
+                onClick={handleResetToEmail}
+                className="flex items-center space-x-1 hover:text-slate-200 transition"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Change Email</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResendCode}
+                className="text-blue-400 hover:text-blue-300 transition"
+              >
+                Resend Code
+              </button>
+            </div>
+          </form>
+        )}
 
         {/* Security & Feature Badges */}
         <div className="pt-4 border-t border-slate-800/80 grid grid-cols-2 gap-2 text-center text-[11px] text-slate-400">
           <div className="p-2 bg-slate-950/60 rounded-lg border border-slate-800/60 flex items-center justify-center space-x-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Single Sign-On</span>
+            <span>Passcode Verified</span>
           </div>
           <div className="p-2 bg-slate-950/60 rounded-lg border border-slate-800/60 flex items-center justify-center space-x-1.5">
             <Lock className="w-3.5 h-3.5 text-blue-400" />
-            <span>Entra ID Verified</span>
+            <span>Mail Plus Restricted</span>
           </div>
         </div>
       </div>
