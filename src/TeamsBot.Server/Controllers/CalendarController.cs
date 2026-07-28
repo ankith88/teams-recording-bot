@@ -208,21 +208,21 @@ namespace TeamsBot.Server.Controllers
                 new UpcomingMeetingDto
                 {
                     Id = "meet-ankith-1",
-                    Subject = "MailPlus x J2 Prospect+ Training",
+                    Subject = "Pre Catch Up",
                     StartTime = "01:00 PM",
                     EndTime = "02:00 PM",
                     Organizer = $"{displayName} (Microsoft Teams Meeting)",
-                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_ProspectPlusTraining2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
+                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_PreCatchUp2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
                     Status = "UPCOMING"
                 },
                 new UpcomingMeetingDto
                 {
                     Id = "meet-ankith-2",
-                    Subject = "Pre Catch Up",
+                    Subject = "MailPlus x J2 Prospect+ Training",
                     StartTime = "02:00 PM",
                     EndTime = "03:00 PM",
                     Organizer = $"{displayName} (Microsoft Teams Meeting)",
-                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_PreCatchUp2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
+                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_ProspectPlusTraining2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
                     Status = "UPCOMING"
                 }
             };
