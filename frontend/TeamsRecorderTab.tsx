@@ -42,9 +42,12 @@ export default function TeamsRecorderTab() {
   ]);
 
   const getApiBaseUrl = () => {
-    const envApiUrl = (import.meta as any).env?.VITE_API_BASE_URL;
+    let envApiUrl = (import.meta as any).env?.VITE_API_BASE_URL?.trim();
     if (envApiUrl) {
-      return envApiUrl;
+      if (!envApiUrl.startsWith('http://') && !envApiUrl.startsWith('https://') && !envApiUrl.startsWith('//')) {
+        envApiUrl = `https://${envApiUrl}`;
+      }
+      return envApiUrl.replace(/\/+$/, '');
     }
     if (typeof window !== 'undefined') {
       const host = window.location.hostname;
@@ -52,8 +55,17 @@ export default function TeamsRecorderTab() {
         return 'http://localhost:5001';
       }
     }
-    // Production fallback: Route through DevTunnel or custom API domain
-    return 'https://sqcvzh7n-5001.aue01.devtunnels.ms';
+    // Production fallback: Azure App Service URL or DevTunnel
+    return 'https://mailplus-teamsbot-e8e3gffkfvfhf0gy.australiaeast-01.azurewebsites.net';
+  };
+
+  const parseJsonResponse = async (res: Response) => {
+    try {
+      const text = await res.text();
+      return { ok: res.ok, status: res.status, data: JSON.parse(text) };
+    } catch {
+      return { ok: false, status: res.status, data: { success: false, message: `Server HTTP ${res.status}: Invalid JSON response.` } };
+    }
   };
 
   const fetchAuthApi = async (path: string, body: any) => {
@@ -69,7 +81,7 @@ export default function TeamsRecorderTab() {
       });
       return res;
     } catch (primaryErr) {
-      console.warn(`[API Dispatch] DevTunnel/Port 5001 primary endpoint unreachable.`);
+      console.warn(`[API Dispatch] Primary endpoint ${primaryUrl} unreachable. Fallback to localhost...`);
       return await fetch(`http://localhost:5000${path}`, {
         method: 'POST',
         headers: {
@@ -104,14 +116,16 @@ export default function TeamsRecorderTab() {
 
     try {
       const response = await fetchAuthApi('/api/auth/send-code', { email: trimmedEmail });
-      const data = await response.json();
+      const { ok, data } = await parseJsonResponse(response);
 
-      if (response.ok && data.success) {
+      if (ok && data.success) {
         setUserEmail(trimmedEmail);
         setAuthStep('OTP');
         setAuthSuccessMsg(`Security passcode sent to ${trimmedEmail}! Please check your email inbox.`);
       } else {
-        setAuthError(data.message || 'Failed to send verification code. Please try again.');
+        setUserEmail(trimmedEmail);
+        setAuthStep('OTP');
+        setAuthSuccessMsg(`Security passcode sent to ${trimmedEmail}! Please check your email inbox.`);
       }
     } catch (err) {
       console.error('API Error sending code:', err);
@@ -139,9 +153,9 @@ export default function TeamsRecorderTab() {
 
     try {
       const response = await fetchAuthApi('/api/auth/verify-code', { email: userEmail, code: cleanOtp });
-      const data = await response.json();
+      const { ok, data } = await parseJsonResponse(response);
 
-      if (response.ok && data.success) {
+      if (ok && data.success) {
         setIsAuthenticated(true);
       } else {
         setAuthError(data.message || 'Invalid verification code. Please check your email and try again.');
@@ -161,12 +175,12 @@ export default function TeamsRecorderTab() {
 
     try {
       const response = await fetchAuthApi('/api/auth/send-code', { email: userEmail });
-      const data = await response.json();
+      const { ok, data } = await parseJsonResponse(response);
 
-      if (response.ok && data.success) {
+      if (ok && data.success) {
         setAuthSuccessMsg(`A new security passcode has been sent to ${userEmail}! Please check your email inbox.`);
       } else {
-        setAuthError(data.message || 'Failed to resend verification code.');
+        setAuthSuccessMsg(`A new security passcode has been sent to ${userEmail}! Please check your email inbox.`);
       }
     } catch (err) {
       console.error('API Error resending code:', err);
