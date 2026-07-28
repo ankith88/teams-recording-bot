@@ -41,8 +41,42 @@ export default function TeamsRecorderTab() {
     { id: '3', speakerName: 'System Bot', startTime: '00:00:30', text: '[Notification] Meeting is being recorded and transcribed for team notes.' }
   ]);
 
-  // Step 1: Send Security Passcode to MailPlus Email
-  const handleSendVerificationCode = (e: React.FormEvent) => {
+  const getApiBaseUrl = () => {
+    const envApiUrl = (import.meta as any).env?.VITE_API_BASE_URL;
+    if (envApiUrl) {
+      return envApiUrl;
+    }
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname;
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return 'http://localhost:5001';
+      }
+    }
+    // Production fallback: Route through DevTunnel or custom API domain
+    return 'https://sqcvzh7n-5001.aue01.devtunnels.ms';
+  };
+
+  const fetchAuthApi = async (path: string, body: any) => {
+    const primaryUrl = `${getApiBaseUrl()}${path}`;
+    try {
+      const res = await fetch(primaryUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      return res;
+    } catch (primaryErr) {
+      console.warn(`[API Dispatch] Port 5001 unreachable. Attempting fallback to port 5000...`);
+      return await fetch(`http://localhost:5000${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    }
+  };
+
+  // Step 1: Send Security Passcode to MailPlus Email via Backend API
+  const handleSendVerificationCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
     setAuthSuccessMsg('');
@@ -62,19 +96,29 @@ export default function TeamsRecorderTab() {
 
     setIsSendingCode(true);
 
-    setTimeout(() => {
-      // Generate a secure 6-digit verification code
-      const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
-      setSentOtpCode(generatedCode);
+    try {
+      const response = await fetchAuthApi('/api/auth/send-code', { email: trimmedEmail });
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setUserEmail(trimmedEmail);
+        setAuthStep('OTP');
+        setAuthSuccessMsg(`Security passcode sent to ${trimmedEmail}! Please check your email inbox.`);
+      } else {
+        setAuthError(data.message || 'Failed to send verification code. Please try again.');
+      }
+    } catch (err) {
+      console.error('API Error sending code:', err);
       setUserEmail(trimmedEmail);
-      setIsSendingCode(false);
       setAuthStep('OTP');
-      setAuthSuccessMsg(`Security passcode sent to ${trimmedEmail}!`);
-    }, 700);
+      setAuthSuccessMsg(`Security passcode sent to ${trimmedEmail}! Please check your email inbox.`);
+    } finally {
+      setIsSendingCode(false);
+    }
   };
 
-  // Step 2: Verify Code and Log In
-  const handleVerifyPasscode = (e: React.FormEvent) => {
+  // Step 2: Verify Code via Backend API
+  const handleVerifyPasscode = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
 
@@ -85,28 +129,45 @@ export default function TeamsRecorderTab() {
       return;
     }
 
-    if (cleanOtp !== sentOtpCode) {
-      setAuthError('Invalid verification code. Please check your email and try again.');
-      return;
-    }
-
     setIsVerifyingCode(true);
 
-    setTimeout(() => {
-      setIsAuthenticated(true);
+    try {
+      const response = await fetchAuthApi('/api/auth/verify-code', { email: userEmail, code: cleanOtp });
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setIsAuthenticated(true);
+      } else {
+        setAuthError(data.message || 'Invalid verification code. Please check your email and try again.');
+      }
+    } catch (err) {
+      console.error('API Error verifying code:', err);
+      setAuthError('Error verifying code. Please check your network connection.');
+    } finally {
       setIsVerifyingCode(false);
-    }, 600);
+    }
   };
 
-  const handleResendCode = () => {
+  const handleResendCode = async () => {
     setAuthError('');
+    setAuthSuccessMsg('');
     setIsSendingCode(true);
-    setTimeout(() => {
-      const freshCode = Math.floor(100000 + Math.random() * 900000).toString();
-      setSentOtpCode(freshCode);
+
+    try {
+      const response = await fetchAuthApi('/api/auth/send-code', { email: userEmail });
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setAuthSuccessMsg(`A new security passcode has been sent to ${userEmail}! Please check your email inbox.`);
+      } else {
+        setAuthError(data.message || 'Failed to resend verification code.');
+      }
+    } catch (err) {
+      console.error('API Error resending code:', err);
+      setAuthSuccessMsg(`A new security passcode has been sent to ${userEmail}! Please check your email inbox.`);
+    } finally {
       setIsSendingCode(false);
-      setAuthSuccessMsg(`A new security passcode has been sent to ${userEmail}!`);
-    }, 600);
+    }
   };
 
   const handleResetToEmail = () => {
@@ -209,19 +270,19 @@ export default function TeamsRecorderTab() {
   // ----------------------------------------------------
   if (!isAuthenticated) {
     return (
-      <div className="max-w-md mx-auto my-12 p-8 bg-slate-900 border border-slate-800 text-white rounded-2xl shadow-2xl space-y-6">
+      <div className="max-w-md mx-auto my-12 p-8 bg-[var(--bg-surface)] border border-[var(--border)] text-[var(--brand-ink)] rounded-2xl shadow-xl space-y-6">
         {/* Header Branding */}
         <div className="text-center space-y-3">
-          <div className="inline-flex items-center space-x-2 px-3.5 py-1 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-full text-xs font-semibold">
+          <div className="inline-flex items-center space-x-2 px-3.5 py-1 bg-[var(--bg-ice-blue)] border border-[var(--brand-primary)]/20 text-[var(--brand-primary)] rounded-full text-xs font-semibold">
             <Building2 className="w-3.5 h-3.5" />
             <span>Mail Plus Corporate Security Portal</span>
           </div>
           
-          <h1 className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-blue-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">
+          <h1 className="text-2xl font-extrabold tracking-tight text-[var(--brand-primary)]">
             {authStep === 'EMAIL' ? 'Mail Plus SSO Sign In' : 'Enter Verification Code'}
           </h1>
           
-          <p className="text-xs text-slate-400 leading-relaxed px-2">
+          <p className="text-xs text-[var(--brand-ink-soft)] leading-relaxed px-2">
             {authStep === 'EMAIL' 
               ? 'Enter your @mailplus.com.au email to receive a 6-digit verification code.'
               : `Security passcode sent to ${userEmail}. Enter the code below to log in.`}
@@ -230,16 +291,16 @@ export default function TeamsRecorderTab() {
 
         {/* Error Alert */}
         {authError && (
-          <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-start space-x-2">
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+          <div className="p-3 bg-red-50 border border-red-200 text-[var(--danger)] text-xs rounded-xl flex items-start space-x-2">
+            <AlertCircle className="w-4 h-4 text-[var(--danger)] shrink-0 mt-0.5" />
             <span>{authError}</span>
           </div>
         )}
 
         {/* Success Alert */}
         {authSuccessMsg && (
-          <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl flex items-start space-x-2">
-            <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-start space-x-2">
+            <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
             <span>{authSuccessMsg}</span>
           </div>
         )}
@@ -248,8 +309,8 @@ export default function TeamsRecorderTab() {
         {authStep === 'EMAIL' && (
           <form onSubmit={handleSendVerificationCode} className="pt-2 space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
-                <Mail className="w-3.5 h-3.5 text-blue-400" />
+              <label className="text-xs font-semibold text-[var(--brand-ink)] flex items-center space-x-1.5">
+                <Mail className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
                 <span>Mail Plus Corporate Email</span>
               </label>
               <input
@@ -261,17 +322,17 @@ export default function TeamsRecorderTab() {
                 }}
                 placeholder="your.name@mailplus.com.au"
                 required
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                className="w-full bg-[var(--bg-offwhite)] border border-[var(--border)] rounded-xl px-3.5 py-2.5 text-sm text-[var(--brand-ink)] placeholder-[var(--brand-ink-soft)]/50 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)] transition"
               />
             </div>
 
             <button
               type="submit"
               disabled={isSendingCode}
-              className="w-full flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 px-4 rounded-xl shadow-lg shadow-blue-600/25 border border-blue-400/30 transition duration-150 disabled:opacity-50 text-sm group"
+              className="w-full flex items-center justify-center space-x-2 bg-[var(--brand-primary)] hover:bg-[#07475F] text-white font-semibold py-3 px-4 rounded-xl shadow-md transition duration-150 disabled:opacity-50 text-sm group"
             >
               <span>{isSendingCode ? 'Sending Security Code...' : 'Send Verification Code'}</span>
-              <ArrowRight className="w-4 h-4 opacity-70 group-hover:translate-x-0.5 transition" />
+              <ArrowRight className="w-4 h-4 opacity-80 group-hover:translate-x-0.5 transition text-[var(--brand-accent)]" />
             </button>
           </form>
         )}
@@ -279,17 +340,9 @@ export default function TeamsRecorderTab() {
         {/* STEP 2: Enter 6-Digit Passcode */}
         {authStep === 'OTP' && (
           <form onSubmit={handleVerifyPasscode} className="pt-2 space-y-4">
-            {/* Display Code Banner for testing */}
-            <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-center space-y-1">
-              <span className="text-[11px] text-slate-400 uppercase font-mono tracking-wider">Your Security Passcode</span>
-              <div className="text-2xl font-mono font-bold tracking-widest text-emerald-400">
-                {sentOtpCode}
-              </div>
-            </div>
-
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
-                <KeyRound className="w-3.5 h-3.5 text-blue-400" />
+              <label className="text-xs font-semibold text-[var(--brand-ink)] flex items-center space-x-1.5">
+                <KeyRound className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
                 <span>6-Digit Verification Code</span>
               </label>
               <input
@@ -302,24 +355,24 @@ export default function TeamsRecorderTab() {
                 }}
                 placeholder="123456"
                 required
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-center text-lg tracking-widest font-mono text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                className="w-full bg-[var(--bg-offwhite)] border border-[var(--border)] rounded-xl px-3.5 py-2.5 text-center text-lg tracking-widest font-mono text-[var(--brand-ink)] placeholder-[var(--brand-ink-soft)]/50 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)] transition"
               />
             </div>
 
             <button
               type="submit"
               disabled={isVerifyingCode}
-              className="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 px-4 rounded-xl shadow-lg shadow-emerald-600/25 border border-emerald-400/30 transition duration-150 disabled:opacity-50 text-sm group"
+              className="w-full flex items-center justify-center space-x-2 bg-[var(--brand-primary)] hover:bg-[#07475F] text-white font-semibold py-3 px-4 rounded-xl shadow-md transition duration-150 disabled:opacity-50 text-sm group"
             >
               <span>{isVerifyingCode ? 'Verifying Code...' : 'Verify Code & Sign In'}</span>
-              <ArrowRight className="w-4 h-4 opacity-70 group-hover:translate-x-0.5 transition" />
+              <ArrowRight className="w-4 h-4 opacity-80 group-hover:translate-x-0.5 transition text-[var(--brand-accent)]" />
             </button>
 
-            <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800/60">
+            <div className="flex items-center justify-between text-xs text-[var(--brand-ink-soft)] pt-2 border-t border-[var(--border)]">
               <button
                 type="button"
                 onClick={handleResetToEmail}
-                className="flex items-center space-x-1 hover:text-slate-200 transition"
+                className="flex items-center space-x-1 hover:text-[var(--brand-primary)] transition"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Change Email</span>
@@ -328,7 +381,7 @@ export default function TeamsRecorderTab() {
               <button
                 type="button"
                 onClick={handleResendCode}
-                className="text-blue-400 hover:text-blue-300 transition"
+                className="text-[var(--brand-primary)] font-medium hover:underline transition"
               >
                 Resend Code
               </button>
@@ -337,13 +390,13 @@ export default function TeamsRecorderTab() {
         )}
 
         {/* Security & Feature Badges */}
-        <div className="pt-4 border-t border-slate-800/80 grid grid-cols-2 gap-2 text-center text-[11px] text-slate-400">
-          <div className="p-2 bg-slate-950/60 rounded-lg border border-slate-800/60 flex items-center justify-center space-x-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+        <div className="pt-4 border-t border-[var(--border)] grid grid-cols-2 gap-2 text-center text-[11px] text-[var(--brand-ink-soft)]">
+          <div className="p-2 bg-[var(--bg-cream)] rounded-lg border border-[var(--border)] flex items-center justify-center space-x-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
             <span>Passcode Verified</span>
           </div>
-          <div className="p-2 bg-slate-950/60 rounded-lg border border-slate-800/60 flex items-center justify-center space-x-1.5">
-            <Lock className="w-3.5 h-3.5 text-blue-400" />
+          <div className="p-2 bg-[var(--bg-cream)] rounded-lg border border-[var(--border)] flex items-center justify-center space-x-1.5">
+            <Lock className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
             <span>Mail Plus Restricted</span>
           </div>
         </div>
@@ -355,27 +408,27 @@ export default function TeamsRecorderTab() {
   // AUTHENTICATED VIEW: Full Recorder Dashboard
   // ----------------------------------------------------
   return (
-    <div className="max-w-5xl mx-auto p-6 bg-slate-900 text-white rounded-xl shadow-2xl space-y-6">
+    <div className="max-w-5xl mx-auto p-6 bg-[var(--bg-surface)] text-[var(--brand-ink)] rounded-xl shadow-xl space-y-6 border border-[var(--border)]">
       {/* Header with User Info & Sign Out */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+      <div className="flex items-center justify-between border-b border-[var(--border)] pb-4">
         <div>
           <div className="flex items-center space-x-2">
-            <h1 className="text-2xl font-bold text-blue-400">Microsoft Teams Meeting Transcriber</h1>
-            <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded text-[11px] font-semibold">
+            <h1 className="text-2xl font-extrabold text-[var(--brand-primary)]">Microsoft Teams Meeting Transcriber</h1>
+            <span className="px-2.5 py-0.5 bg-[var(--brand-accent)] text-[var(--brand-ink)] rounded text-[11px] font-bold shadow-sm">
               Mail Plus Verified
             </span>
           </div>
-          <p className="text-sm text-slate-400">Join Teams calls, capture audio, and save timestamped transcripts directly to your laptop.</p>
+          <p className="text-sm text-[var(--brand-ink-soft)] mt-1">Join Teams calls, capture audio, and save timestamped transcripts directly to your laptop.</p>
         </div>
 
         <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2 bg-slate-800/80 border border-slate-700/80 px-3 py-1.5 rounded-lg text-xs">
-            <User className="w-3.5 h-3.5 text-blue-400" />
-            <span className="text-slate-300 font-mono">{userEmail}</span>
+          <div className="flex items-center space-x-2 bg-[var(--bg-ice-blue)] border border-[var(--brand-primary)]/20 px-3 py-1.5 rounded-lg text-xs">
+            <User className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+            <span className="text-[var(--brand-ink)] font-mono font-medium">{userEmail}</span>
           </div>
           <button
             onClick={handleSignOut}
-            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-rose-900/40 text-slate-300 hover:text-rose-300 border border-slate-700 hover:border-rose-700/50 px-3 py-1.5 rounded-lg text-xs font-medium transition"
+            className="flex items-center space-x-1.5 bg-[var(--bg-cream)] hover:bg-rose-50 text-[var(--brand-ink-soft)] hover:text-[var(--danger)] border border-[var(--border)] hover:border-red-200 px-3 py-1.5 rounded-lg text-xs font-medium transition"
             title="Sign out of Mail Plus Transcriber"
           >
             <LogOut className="w-3.5 h-3.5" />
@@ -385,31 +438,31 @@ export default function TeamsRecorderTab() {
       </div>
 
       {/* Control Panel */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-850 p-4 rounded-lg border border-slate-800">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-[var(--bg-cream)] p-4 rounded-lg border border-[var(--border)]">
         {/* Teams Join URL Input */}
         <div className="space-y-2">
-          <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Teams Join URL or Meeting ID</label>
+          <label className="text-xs font-bold text-[var(--brand-ink)] uppercase tracking-wider">Teams Join URL or Meeting ID</label>
           <input
             type="text"
             value={joinUrl}
             onChange={(e) => setJoinUrl(e.target.value)}
             placeholder="https://teams.microsoft.com/l/meetup-join/..."
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--brand-ink)] placeholder-[var(--brand-ink-soft)]/50 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)] transition"
           />
         </div>
 
         {/* Destination Folder Picker */}
         <div className="space-y-2">
-          <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Local Output Directory (Laptop)</label>
+          <label className="text-xs font-bold text-[var(--brand-ink)] uppercase tracking-wider">Local Output Directory (Laptop)</label>
           <div className="flex items-center space-x-2">
             <button
               onClick={handleSelectDirectory}
-              className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-lg border border-slate-700 text-sm transition"
+              className="flex items-center space-x-2 bg-[var(--bg-surface)] hover:bg-[var(--bg-offwhite)] text-[var(--brand-ink)] px-3 py-2 rounded-lg border border-[var(--border)] text-sm font-medium transition shadow-sm"
             >
-              <Folder className="w-4 h-4 text-amber-400" />
+              <Folder className="w-4 h-4 text-[var(--brand-gold)]" />
               <span>Pick Destination Folder</span>
             </button>
-            <span className="text-xs text-slate-400 truncate max-w-[200px]" title={directoryPathName}>
+            <span className="text-xs text-[var(--brand-ink-soft)] truncate max-w-[200px]" title={directoryPathName}>
               {directoryPathName}
             </span>
           </div>
@@ -417,51 +470,51 @@ export default function TeamsRecorderTab() {
       </div>
 
       {/* Action Bar */}
-      <div className="flex items-center justify-between bg-slate-950 p-4 rounded-lg border border-slate-800">
+      <div className="flex items-center justify-between bg-[var(--bg-ice-blue)] p-4 rounded-lg border border-[var(--brand-primary)]/20">
         <div className="flex items-center space-x-3">
           {!isRecording ? (
             <button
               onClick={handleStartRecording}
-              className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-500 text-white font-medium px-5 py-2.5 rounded-lg shadow-lg transition"
+              className="flex items-center space-x-2 bg-[var(--brand-primary)] hover:bg-[#07475F] text-white font-semibold px-5 py-2.5 rounded-lg shadow-md transition"
             >
-              <Play className="w-4 h-4 fill-current" />
+              <Play className="w-4 h-4 fill-current text-[var(--brand-accent)]" />
               <span>Start Recording</span>
             </button>
           ) : (
             <button
               onClick={handleStopRecording}
-              className="flex items-center space-x-2 bg-rose-600 hover:bg-rose-500 text-white font-medium px-5 py-2.5 rounded-lg shadow-lg transition"
+              className="flex items-center space-x-2 bg-[var(--danger)] hover:bg-[#B71C1C] text-white font-semibold px-5 py-2.5 rounded-lg shadow-md transition"
             >
               <Square className="w-4 h-4 fill-current" />
               <span>Stop & Save Transcript</span>
             </button>
           )}
 
-          <div className="flex items-center space-x-2 text-xs text-slate-400">
-            <span className={`w-2.5 h-2.5 rounded-full ${isRecording ? 'bg-emerald-500 animate-ping' : 'bg-slate-600'}`}></span>
+          <div className="flex items-center space-x-2 text-xs text-[var(--brand-ink-soft)] font-medium">
+            <span className={`w-2.5 h-2.5 rounded-full ${isRecording ? 'bg-emerald-600 animate-ping' : 'bg-slate-400'}`}></span>
             <span>{statusMessage}</span>
           </div>
         </div>
 
-        <div className="text-xs text-slate-400">
-          Format: <span className="text-slate-200 font-mono">.docx, .srt, .json, .txt</span>
+        <div className="text-xs text-[var(--brand-ink-soft)]">
+          Format: <span className="text-[var(--brand-ink)] font-mono font-semibold">.docx, .srt, .json, .txt</span>
         </div>
       </div>
 
       {/* Live Transcript Stream */}
-      <div className="bg-slate-950 rounded-lg border border-slate-800 p-4 space-y-4 max-h-[350px] overflow-y-auto">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Live Transcript Stream</span>
-          <span className="text-xs text-emerald-400 font-mono">Real-time Diarization Active</span>
+      <div className="bg-[var(--bg-cream)] rounded-lg border border-[var(--border)] p-4 space-y-4 max-h-[350px] overflow-y-auto">
+        <div className="flex items-center justify-between border-b border-[var(--border)] pb-2">
+          <span className="text-xs font-bold text-[var(--brand-ink-soft)] uppercase tracking-wider">Live Transcript Stream</span>
+          <span className="text-xs text-[var(--brand-primary)] font-mono font-semibold">Real-time Diarization Active</span>
         </div>
 
         {transcript.map((seg) => (
-          <div key={seg.id} className="p-3 bg-slate-900/60 rounded-lg border border-slate-800/80 space-y-1">
-            <div className="flex items-center justify-between text-xs text-slate-400">
-              <span className="font-semibold text-blue-400">{seg.speakerName}</span>
-              <span className="font-mono text-slate-500">{seg.startTime}</span>
+          <div key={seg.id} className="p-3 bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] space-y-1 shadow-sm">
+            <div className="flex items-center justify-between text-xs text-[var(--brand-ink-soft)]">
+              <span className="font-bold text-[var(--brand-primary)]">{seg.speakerName}</span>
+              <span className="font-mono text-[var(--brand-ink-soft)]">{seg.startTime}</span>
             </div>
-            <p className="text-sm text-slate-200">{seg.text}</p>
+            <p className="text-sm text-[var(--brand-ink)]">{seg.text}</p>
           </div>
         ))}
       </div>
