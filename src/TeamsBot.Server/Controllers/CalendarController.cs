@@ -86,13 +86,14 @@ namespace TeamsBot.Server.Controllers
                 string accessToken = doc.RootElement.GetProperty("access_token").GetString() ?? "";
 
                 var now = DateTime.UtcNow;
-                var startOfDay = now.Date.ToString("o");
-                var endOfDay = now.Date.AddDays(1).ToString("o");
+                var startDateTime = now.AddHours(-12).ToString("yyyy-MM-ddTHH:mm:ssZ");
+                var endDateTime = now.AddHours(36).ToString("yyyy-MM-ddTHH:mm:ssZ");
 
-                var calendarUrl = $"https://graph.microsoft.com/v1.0/users/{email}/calendarView?startDateTime={startOfDay}&endDateTime={endOfDay}&$orderby=start/dateTime&$top=20";
+                var calendarUrl = $"https://graph.microsoft.com/v1.0/users/{email}/calendarView?startDateTime={startDateTime}&endDateTime={endDateTime}&$orderby=start/dateTime&$top=50";
 
                 var request = new HttpRequestMessage(HttpMethod.Get, calendarUrl);
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                request.Headers.Add("Prefer", "outlook.timezone=\"AUS Eastern Standard Time\"");
 
                 var response = await _httpClient.SendAsync(request);
                 if (!response.IsSuccessStatusCode) return null;
