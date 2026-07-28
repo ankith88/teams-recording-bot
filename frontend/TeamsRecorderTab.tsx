@@ -61,15 +61,21 @@ export default function TeamsRecorderTab() {
     try {
       const res = await fetch(primaryUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Tunnel-Skip-Anti-Phishing-Page': 'true'
+        },
         body: JSON.stringify(body)
       });
       return res;
     } catch (primaryErr) {
-      console.warn(`[API Dispatch] Port 5001 unreachable. Attempting fallback to port 5000...`);
+      console.warn(`[API Dispatch] DevTunnel/Port 5001 primary endpoint unreachable.`);
       return await fetch(`http://localhost:5000${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Tunnel-Skip-Anti-Phishing-Page': 'true'
+        },
         body: JSON.stringify(body)
       });
     }
