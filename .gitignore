@@ -6,6 +6,8 @@ bin/
 obj/
 publish/
 publish.zip
+deploy.zip
+*.zip
 
 # Node.js & Vite Outputs
 node_modules/
