@@ -58,20 +58,20 @@ const generateTailoredMeetings = (email: string): UpcomingMeeting[] => {
   return [
     {
       id: 'meet-1',
-      subject: 'Pre Catch Up',
-      startTime: '09:30 AM',
-      endTime: '10:15 AM',
+      subject: 'MailPlus x J2 Prospect+ Training',
+      startTime: '01:00 PM',
+      endTime: '02:00 PM',
       organizer: `${name} (Microsoft Teams Meeting)`,
-      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_PreCatchUp2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
-      status: 'IN_PROGRESS'
+      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_ProspectPlusTraining2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
+      status: 'UPCOMING'
     },
     {
       id: 'meet-2',
-      subject: 'MailPlus x J2 Prospect+ Training',
-      startTime: '01:30 PM',
-      endTime: '02:30 PM',
+      subject: 'Pre Catch Up',
+      startTime: '02:00 PM',
+      endTime: '03:00 PM',
       organizer: `${name} (Microsoft Teams Meeting)`,
-      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_ProspectPlusTraining2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
+      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_PreCatchUp2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
       status: 'UPCOMING'
     }
   ];

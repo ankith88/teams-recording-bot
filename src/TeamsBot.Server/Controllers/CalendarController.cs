@@ -79,7 +79,12 @@ namespace TeamsBot.Server.Controllers
                 });
 
                 var tokenResponse = await _httpClient.PostAsync(tokenUrl, tokenContent);
-                if (!tokenResponse.IsSuccessStatusCode) return null;
+                if (!tokenResponse.IsSuccessStatusCode)
+                {
+                    string errStr = await tokenResponse.Content.ReadAsStringAsync();
+                    Console.WriteLine($"[CalendarController] Token request failed ({tokenResponse.StatusCode}): {errStr}");
+                    return null;
+                }
 
                 var tokenJson = await tokenResponse.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(tokenJson);
@@ -96,7 +101,12 @@ namespace TeamsBot.Server.Controllers
                 request.Headers.Add("Prefer", "outlook.timezone=\"AUS Eastern Standard Time\"");
 
                 var response = await _httpClient.SendAsync(request);
-                if (!response.IsSuccessStatusCode) return null;
+                if (!response.IsSuccessStatusCode)
+                {
+                    string errStr = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"[CalendarController] Calendar API failed ({response.StatusCode}): {errStr}");
+                    return null;
+                }
 
                 var responseJson = await response.Content.ReadAsStringAsync();
                 using var resDoc = JsonDocument.Parse(responseJson);
@@ -198,21 +208,21 @@ namespace TeamsBot.Server.Controllers
                 new UpcomingMeetingDto
                 {
                     Id = "meet-ankith-1",
-                    Subject = "Pre Catch Up",
-                    StartTime = "09:30 AM",
-                    EndTime = "10:15 AM",
+                    Subject = "MailPlus x J2 Prospect+ Training",
+                    StartTime = "01:00 PM",
+                    EndTime = "02:00 PM",
                     Organizer = $"{displayName} (Microsoft Teams Meeting)",
-                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_PreCatchUp2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
-                    Status = "IN_PROGRESS"
+                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_ProspectPlusTraining2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
+                    Status = "UPCOMING"
                 },
                 new UpcomingMeetingDto
                 {
                     Id = "meet-ankith-2",
-                    Subject = "MailPlus x J2 Prospect+ Training",
-                    StartTime = "01:30 PM",
-                    EndTime = "02:30 PM",
+                    Subject = "Pre Catch Up",
+                    StartTime = "02:00 PM",
+                    EndTime = "03:00 PM",
                     Organizer = $"{displayName} (Microsoft Teams Meeting)",
-                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_ProspectPlusTraining2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
+                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_PreCatchUp2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
                     Status = "UPCOMING"
                 }
             };
