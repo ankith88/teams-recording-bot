@@ -1,0 +1,54 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.16",
+  "version": "1.0.0",
+  "id": "14dfc0de-46da-437c-8abc-45004de1b02a",
+  "developer": {
+    "name": "MailPlus Australia",
+    "websiteUrl": "https://teams-recording-bot.vercel.app",
+    "privacyUrl": "https://teams-recording-bot.vercel.app",
+    "termsOfUseUrl": "https://teams-recording-bot.vercel.app"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "Teams Recording Bot",
+    "full": "MailPlus Teams Meeting Recording & Transcription Bot"
+  },
+  "description": {
+    "short": "Record and transcribe Teams meetings for MailPlus",
+    "full": "Official MailPlus corporate tool for recording and transcribing Microsoft Teams meetings with automatic speaker attribution and local transcript export."
+  },
+  "accentColor": "#095C7B",
+  "configurableTabs": [
+    {
+      "configurationUrl": "https://teams-recording-bot.vercel.app",
+      "canUpdateConfiguration": true,
+      "scopes": ["team", "groupchat"]
+    }
+  ],
+  "staticTabs": [
+    {
+      "entityId": "teams-recording-bot-tab",
+      "name": "Teams Recorder",
+      "contentUrl": "https://teams-recording-bot.vercel.app",
+      "websiteUrl": "https://teams-recording-bot.vercel.app",
+      "scopes": ["personal"]
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "teams-recording-bot.vercel.app",
+    "mailplus-teamsbot-e8e3gffkfvfhf0gy.australiaeast-01.azurewebsites.net",
+    "login.microsoftonline.com"
+  ],
+  "webApplicationInfo": {
+    "id": "14dfc0de-46da-437c-8abc-45004de1b02a",
+    "resource": "https://teams-recording-bot.vercel.app"
+  }
+}

@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import * as microsoftTeams from '@microsoft/teams-js';
 import { 
   Play, Square, Folder, FileText, CheckCircle2, AlertCircle, 
   RefreshCw, Volume2, Lock, ShieldCheck, LogOut, User, 
@@ -40,6 +41,84 @@ export default function TeamsRecorderTab() {
     { id: '2', speakerName: 'Sales Lead', startTime: '00:00:28', text: 'The new lead distribution metrics for Mail Plus look great.' },
     { id: '3', speakerName: 'System Bot', startTime: '00:00:30', text: '[Notification] Meeting is being recorded and transcribed for team notes.' }
   ]);
+
+  // Handle Microsoft 365 OAuth Redirect & Teams Native Tab Auto SSO
+  useEffect(() => {
+    // 1. Parse OAuth Return Token / Hash
+    const hash = window.location.hash;
+    const searchParams = new URLSearchParams(window.location.search);
+    let msUserEmail = searchParams.get('ms_login_email');
+
+    if (hash && hash.includes('id_token=')) {
+      try {
+        const idToken = new URLSearchParams(hash.substring(1)).get('id_token');
+        if (idToken) {
+          const payloadBase64 = idToken.split('.')[1];
+          const payloadJson = atob(payloadBase64.replace(/-/g, '+').replace(/_/g, '/'));
+          const parsed = JSON.parse(payloadJson);
+          msUserEmail = parsed.preferred_username || parsed.email || parsed.upn || msUserEmail;
+        }
+      } catch (err) {
+        console.error('Error parsing MS OAuth token payload', err);
+      }
+    }
+
+    if (msUserEmail) {
+      const cleanEmail = msUserEmail.trim().toLowerCase();
+      if (cleanEmail.endsWith('@mailplus.com.au') || cleanEmail.endsWith('@mailplus.com')) {
+        setUserEmail(cleanEmail);
+        setIsAuthenticated(true);
+        setAuthSuccessMsg(`Successfully authenticated via Microsoft 365 (${cleanEmail})`);
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return;
+      } else {
+        setAuthError(`Access Denied: ${cleanEmail} is not authorized. Only @mailplus.com.au accounts permitted.`);
+      }
+    }
+
+    // 2. Try Microsoft Teams SDK Native Tab SSO (Automatic login inside Teams client)
+    try {
+      microsoftTeams.app.initialize().then(() => {
+        microsoftTeams.app.getContext().then((context) => {
+          const upn = context.user?.userPrincipalName || context.user?.loginHint;
+          if (upn) {
+            const cleanUpn = upn.trim().toLowerCase();
+            if (cleanUpn.endsWith('@mailplus.com.au') || cleanUpn.endsWith('@mailplus.com')) {
+              setUserEmail(cleanUpn);
+              setIsAuthenticated(true);
+              setAuthSuccessMsg(`Logged in via Microsoft Teams Tab (${cleanUpn})`);
+            }
+          }
+        }).catch((err) => {
+          console.log('[Teams SDK] Not inside Teams client context:', err);
+        });
+      }).catch(() => {
+        // Standard web browser environment
+      });
+    } catch (e) {
+      // Teams SDK init fallback
+    }
+  }, []);
+
+  const handleMicrosoftSso = () => {
+    setAuthError('');
+    setAuthSuccessMsg('');
+    
+    // Redirect to Microsoft 365 OpenID Connect Authorization Endpoint
+    const clientId = (import.meta as any).env?.VITE_AZURE_CLIENT_ID || '14dfc0de-46da-437c-8abc-45004de1b02a';
+    const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
+    const nonce = Math.random().toString(36).substring(2);
+
+    const msLoginUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?` +
+      `client_id=${clientId}` +
+      `&response_type=id_token` +
+      `&redirect_uri=${redirectUri}` +
+      `&scope=openid%20profile%20email` +
+      `&response_mode=fragment` +
+      `&nonce=${nonce}`;
+
+    window.location.href = msLoginUrl;
+  };
 
   const getApiBaseUrl = () => {
     let envApiUrl = (import.meta as any).env?.VITE_API_BASE_URL?.trim();
@@ -327,34 +406,57 @@ export default function TeamsRecorderTab() {
 
         {/* STEP 1: Enter Mail Plus Corporate Email */}
         {authStep === 'EMAIL' && (
-          <form onSubmit={handleSendVerificationCode} className="pt-2 space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-[var(--brand-ink)] flex items-center space-x-1.5">
-                <Mail className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
-                <span>Mail Plus Corporate Email</span>
-              </label>
-              <input
-                type="email"
-                value={inputEmail}
-                onChange={(e) => {
-                  setInputEmail(e.target.value);
-                  if (authError) setAuthError('');
-                }}
-                placeholder="your.name@mailplus.com.au"
-                required
-                className="w-full bg-[var(--bg-offwhite)] border border-[var(--border)] rounded-xl px-3.5 py-2.5 text-sm text-[var(--brand-ink)] placeholder-[var(--brand-ink-soft)]/50 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)] transition"
-              />
+          <div className="space-y-4 pt-1">
+            {/* Direct Microsoft 365 OpenID SSO Button */}
+            <button
+              type="button"
+              onClick={handleMicrosoftSso}
+              className="w-full flex items-center justify-center space-x-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 font-semibold py-3 px-4 rounded-xl shadow-sm transition duration-150 text-sm group"
+            >
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 21 21">
+                <path fill="#f25022" d="M1 1h9v9H1z"/>
+                <path fill="#00a4ef" d="M1 11h9v9H1z"/>
+                <path fill="#7fba00" d="M11 1h9v9H11z"/>
+                <path fill="#ffb900" d="M11 11h9v9H11z"/>
+              </svg>
+              <span>Sign in with Microsoft 365</span>
+            </button>
+
+            <div className="relative flex py-1 items-center">
+              <div className="flex-grow border-t border-[var(--border)]"></div>
+              <span className="flex-shrink mx-3 text-[11px] text-[var(--brand-ink-soft)] font-semibold uppercase tracking-wider">or email code</span>
+              <div className="flex-grow border-t border-[var(--border)]"></div>
             </div>
 
-            <button
-              type="submit"
-              disabled={isSendingCode}
-              className="w-full flex items-center justify-center space-x-2 bg-[var(--brand-primary)] hover:bg-[#07475F] text-white font-semibold py-3 px-4 rounded-xl shadow-md transition duration-150 disabled:opacity-50 text-sm group"
-            >
-              <span>{isSendingCode ? 'Sending Security Code...' : 'Send Verification Code'}</span>
-              <ArrowRight className="w-4 h-4 opacity-80 group-hover:translate-x-0.5 transition text-[var(--brand-accent)]" />
-            </button>
-          </form>
+            <form onSubmit={handleSendVerificationCode} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[var(--brand-ink)] flex items-center space-x-1.5">
+                  <Mail className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
+                  <span>Mail Plus Corporate Email</span>
+                </label>
+                <input
+                  type="email"
+                  value={inputEmail}
+                  onChange={(e) => {
+                    setInputEmail(e.target.value);
+                    if (authError) setAuthError('');
+                  }}
+                  placeholder="your.name@mailplus.com.au"
+                  required
+                  className="w-full bg-[var(--bg-offwhite)] border border-[var(--border)] rounded-xl px-3.5 py-2.5 text-sm text-[var(--brand-ink)] placeholder-[var(--brand-ink-soft)]/50 focus:outline-none focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)] transition"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSendingCode}
+                className="w-full flex items-center justify-center space-x-2 bg-[var(--brand-primary)] hover:bg-[#07475F] text-white font-semibold py-3 px-4 rounded-xl shadow-md transition duration-150 disabled:opacity-50 text-sm group"
+              >
+                <span>{isSendingCode ? 'Sending Security Code...' : 'Send Verification Code'}</span>
+                <ArrowRight className="w-4 h-4 opacity-80 group-hover:translate-x-0.5 transition text-[var(--brand-accent)]" />
+              </button>
+            </form>
+          </div>
         )}
 
         {/* STEP 2: Enter 6-Digit Passcode */}
