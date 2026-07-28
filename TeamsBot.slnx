@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TeamsBot.Core/TeamsBot.Core.csproj" />
+    <Project Path="src/TeamsBot.Server/TeamsBot.Server.csproj" />
+    <Project Path="src/TeamsBot.Signaling/TeamsBot.Signaling.csproj" />
+    <Project Path="src/TeamsBot.Storage/TeamsBot.Storage.csproj" />
+    <Project Path="src/TeamsBot.Transcription/TeamsBot.Transcription.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TeamsBot.Tests.Unit/TeamsBot.Tests.Unit.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TeamsBot.Core\TeamsBot.Core.csproj" />
+    <ProjectReference Include="..\TeamsBot.Signaling\TeamsBot.Signaling.csproj" />
+    <ProjectReference Include="..\TeamsBot.Storage\TeamsBot.Storage.csproj" />
+    <ProjectReference Include="..\TeamsBot.Transcription\TeamsBot.Transcription.csproj" />
+  </ItemGroup>
+</Project>
