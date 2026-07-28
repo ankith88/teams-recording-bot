@@ -73,15 +73,6 @@ const generateTailoredMeetings = (email: string): UpcomingMeeting[] => {
       organizer: `${name} (Microsoft Teams Meeting)`,
       joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_ProspectPlusTraining2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
       status: 'UPCOMING'
-    },
-    {
-      id: 'meet-3',
-      subject: 'National Franchise Performance & Growth Sync',
-      startTime: '04:00 PM',
-      endTime: '04:45 PM',
-      organizer: `${name} & David Ross`,
-      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_FranchiseSync2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
-      status: 'UPCOMING'
     }
   ];
 };

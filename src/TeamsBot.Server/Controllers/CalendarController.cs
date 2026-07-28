@@ -214,16 +214,6 @@ namespace TeamsBot.Server.Controllers
                     Organizer = $"{displayName} (Microsoft Teams Meeting)",
                     JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_ProspectPlusTraining2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
                     Status = "UPCOMING"
-                },
-                new UpcomingMeetingDto
-                {
-                    Id = "meet-ankith-3",
-                    Subject = "National Franchise Performance & Growth Sync",
-                    StartTime = "04:00 PM",
-                    EndTime = "04:45 PM",
-                    Organizer = $"{displayName} & David Ross",
-                    JoinUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_FranchiseSync2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d",
-                    Status = "UPCOMING"
                 }
             };
         }
