@@ -53,31 +53,7 @@ const formatDisplayName = (email: string) => {
   return parts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
 };
 
-const generateTailoredMeetings = (email: string): UpcomingMeeting[] => {
-  const name = formatDisplayName(email);
-  return [
-    {
-      id: 'meet-1',
-      subject: 'Pre Catch Up',
-      startTime: '01:00 PM',
-      endTime: '02:00 PM',
-      organizer: `${name} (Microsoft Teams Meeting)`,
-      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_PreCatchUp2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
-      status: 'UPCOMING'
-    },
-    {
-      id: 'meet-2',
-      subject: 'MailPlus x J2 Prospect+ Training',
-      startTime: '02:00 PM',
-      endTime: '03:00 PM',
-      organizer: `${name} (Microsoft Teams Meeting)`,
-      joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_ProspectPlusTraining2026%40thread.v2/0?context=%7b%22Tid%22%3a%22mailplus-tenant%22%7d',
-      status: 'UPCOMING'
-    }
-  ];
-};
-
-const defaultUpcomingMeetings: UpcomingMeeting[] = generateTailoredMeetings('ankith.ravindran@mailplus.com.au');
+const defaultUpcomingMeetings: UpcomingMeeting[] = [];
 
 const defaultRecordings: LocalRecording[] = [];
 
@@ -97,7 +73,7 @@ export default function TeamsRecorderTab() {
   // Recorder State
   const [joinUrl, setJoinUrl] = useState('');
   const [isRecording, setIsRecording] = useState(false);
-  const [meetingSubject, setMeetingSubject] = useState('Weekly Sales Sync');
+  const [meetingSubject, setMeetingSubject] = useState('');
   const [selectedDirectory, setSelectedDirectory] = useState<FileSystemDirectoryHandle | null>(null);
   const [directoryPathName, setDirectoryPathName] = useState<string>('No folder selected (Will prompt on save)');
   const [statusMessage, setStatusMessage] = useState<string>('Ready to record');
@@ -117,7 +93,7 @@ export default function TeamsRecorderTab() {
   const [selectedAiRecordingId, setSelectedAiRecordingId] = useState<string>('');
   const [isGeneratingAi, setIsGeneratingAi] = useState<boolean>(false);
 
-  // Fetch user meetings dynamically from Graph API backend or generate user-tailored list
+  // Fetch user meetings dynamically from Graph API backend
   const fetchUserMeetings = async (email: string) => {
     setIsLoadingMeetings(true);
     const targetEmail = email || userEmail || 'ankith.ravindran@mailplus.com.au';
@@ -125,7 +101,7 @@ export default function TeamsRecorderTab() {
       const res = await fetch(`${getApiBaseUrl()}/api/calendar/meetings?email=${encodeURIComponent(targetEmail)}`);
       if (res.ok) {
         const data = await res.json();
-        if (data.success && Array.isArray(data.meetings) && data.meetings.length > 0) {
+        if (data.success && Array.isArray(data.meetings)) {
           setUpcomingMeetings(data.meetings);
           setIsLoadingMeetings(false);
           return;
@@ -134,7 +110,7 @@ export default function TeamsRecorderTab() {
     } catch (err) {
       console.warn('[Calendar] Error fetching backend meetings:', err);
     }
-    setUpcomingMeetings(generateTailoredMeetings(targetEmail));
+    setUpcomingMeetings([]);
     setIsLoadingMeetings(false);
   };
 
@@ -504,101 +480,91 @@ export default function TeamsRecorderTab() {
     }
   };
 
-  const handleStartRecording = () => {
+  const handleFetchTranscript = async () => {
     if (!joinUrl) {
       alert('Please select an upcoming meeting or enter a Microsoft Teams Join Link / Meeting ID.');
       return;
     }
+
     setIsRecording(true);
-    setStatusMessage('Bot joining Teams meeting...');
-    setTimeout(() => {
-      setStatusMessage('Recording & transcribing live meeting audio...');
-    }, 2000);
-  };
+    setStatusMessage('Connecting to Microsoft Graph API...');
 
-  const handleStopRecording = async () => {
-    setIsRecording(false);
-    setStatusMessage('Finalizing transcript and saving files...');
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/api/transcript/fetch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          joinUrl,
+          userEmail: userEmail || 'ankith.ravindran@mailplus.com.au',
+          subject: meetingSubject || 'Teams Meeting'
+        })
+      });
 
-    const sanitizedTitle = meetingSubject.replace(/[\\/:*?"<>|]/g, '_');
-    const timestampStr = new Date().toLocaleString();
+      const data = await res.json();
+      setIsRecording(false);
 
-    // Generate Formatted Plain Text
-    const plainTextContent = `Meeting Title: ${meetingSubject}\nDate: ${timestampStr}\n` +
-      `Authenticated MailPlus User: ${userEmail || 'staff@mailplus.com.au'}\n` +
-      `--------------------------------------------------\n\n` +
-      `[00:00:10] Meeting Host: Welcome everyone to today's meeting on ${meetingSubject}.\n\n` +
-      `[00:00:45] MailPlus Representative: Reviewing project deliverables and timeline updates.\n\n` +
-      `[00:02:15] Action Item: Next sync scheduled for next week with updated metrics export.`;
-
-    // Save directly to user's selected laptop folder if directory handle exists
-    if (selectedDirectory) {
-      try {
-        const fileHandle = await selectedDirectory.getFileHandle(`${sanitizedTitle}.txt`, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(plainTextContent);
-        await writable.close();
-
-        // Also save DOCX text file
-        const docxHandle = await selectedDirectory.getFileHandle(`${sanitizedTitle}.docx`, { create: true });
-        const docxWritable = await docxHandle.createWritable();
-        await docxWritable.write(plainTextContent);
-        await docxWritable.close();
-
-        setStatusMessage(`Successfully saved transcripts directly to laptop folder: "${selectedDirectory.name}"!`);
-        alert(`Transcripts saved directly to your laptop in folder: "${selectedDirectory.name}"!`);
-      } catch (err) {
-        console.error('Error writing file directly to laptop directory:', err);
-        fallbackDownload(`${sanitizedTitle}.txt`, plainTextContent);
+      if (!data.success) {
+        setStatusMessage(data.message || 'Failed to fetch Microsoft Teams transcript.');
+        alert(data.message || 'No Microsoft Teams transcript found for this meeting URL.');
+        return;
       }
-    } else {
-      fallbackDownload(`${sanitizedTitle}.txt`, plainTextContent);
-      setStatusMessage('Transcript downloaded to default Downloads folder.');
-    }
 
-    // Save recording into local saved recordings list & localStorage
-    const generatedSummary: AiSummaryData = {
-      overview: `Completed meeting recording for "${meetingSubject}". Automatically generated AI overview, key discussion points, and action items.`,
-      keyPoints: [
-        `Reviewed project deliverables and timeline updates for ${meetingSubject}.`,
-        `MailPlus team alignment confirmed on target milestones.`,
-        `Next sync scheduled for next week with updated metrics export.`
-      ],
-      actionItems: [
-        {
-          id: `act-new-1`,
-          task: `Prepare updated metrics export for ${meetingSubject}`,
-          assignee: userEmail ? userEmail.split('@')[0] : 'MailPlus Representative',
-          dueDate: 'Next Sync',
-          status: 'PENDING'
+      const activeSubject = data.meetingSubject || meetingSubject || 'Teams Meeting';
+      const sanitizedTitle = activeSubject.replace(/[\\/:*?"<>|]/g, '_');
+      const timestampStr = data.dateSaved || new Date().toLocaleString();
+      const plainTextContent = data.plainTextContent || '';
+
+      // Save directly to user's selected laptop folder if directory handle exists
+      if (selectedDirectory) {
+        try {
+          const fileHandle = await selectedDirectory.getFileHandle(`${sanitizedTitle}.txt`, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(plainTextContent);
+          await writable.close();
+
+          const docxHandle = await selectedDirectory.getFileHandle(`${sanitizedTitle}.docx`, { create: true });
+          const docxWritable = await docxHandle.createWritable();
+          await docxWritable.write(plainTextContent);
+          await docxWritable.close();
+
+          setStatusMessage(`Successfully saved real transcript & AI summary directly to laptop folder: "${selectedDirectory.name}"!`);
+          alert(`Transcripts saved directly to your laptop in folder: "${selectedDirectory.name}"!`);
+        } catch (err) {
+          console.error('Error writing file directly to laptop directory:', err);
+          fallbackDownload(`${sanitizedTitle}.txt`, plainTextContent);
         }
-      ],
-      decisions: [
-        `Agreed to hold next team alignment call next week.`
-      ]
-    };
+      } else {
+        fallbackDownload(`${sanitizedTitle}.txt`, plainTextContent);
+        setStatusMessage('Transcript downloaded to default Downloads folder.');
+      }
 
-    const newRecord: LocalRecording = {
-      id: `rec-${Date.now()}`,
-      title: `${sanitizedTitle}_${new Date().toISOString().slice(0, 10)}`,
-      dateSaved: timestampStr,
-      formats: ['.txt', '.docx'],
-      savedToFolder: selectedDirectory ? selectedDirectory.name : 'Downloads Folder',
-      sizeKb: Math.max(1, Math.round(plainTextContent.length / 1024)),
-      content: plainTextContent,
-      aiSummary: generatedSummary
-    };
+      const newRecord: LocalRecording = {
+        id: `rec-${Date.now()}`,
+        title: `${sanitizedTitle}_${new Date().toISOString().slice(0, 10)}`,
+        dateSaved: timestampStr,
+        formats: ['.txt', '.docx'],
+        savedToFolder: selectedDirectory ? selectedDirectory.name : 'Downloads Folder',
+        sizeKb: Math.max(1, Math.round(plainTextContent.length / 1024)),
+        content: plainTextContent,
+        aiSummary: data.aiSummary
+      };
 
-    setSavedRecordings(prev => {
-      const updated = [newRecord, ...prev];
-      try {
-        localStorage.setItem('mailplus_local_recordings', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+      setSavedRecordings(prev => {
+        const updated = [newRecord, ...prev];
+        try {
+          localStorage.setItem('mailplus_local_recordings', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
 
-    // Auto switch tab to Saved Local Recordings so user sees their new file immediately
-    setActiveDashboardTab('RECORDINGS');
+      // View recording modal & switch tab to RECORDINGS
+      setViewingRecording(newRecord);
+      setActiveDashboardTab('RECORDINGS');
+    } catch (err: any) {
+      setIsRecording(false);
+      setStatusMessage(`Error connecting to server: ${err?.message || err}`);
+      alert(`Error fetching transcript: ${err?.message || err}`);
+    }
   };
 
   const handleToggleActionItemStatus = (recordingId: string, actionItemId: string) => {
@@ -989,19 +955,19 @@ export default function TeamsRecorderTab() {
         <div className="flex items-center space-x-3">
           {!isRecording ? (
             <button
-              onClick={handleStartRecording}
+              onClick={handleFetchTranscript}
               className="flex items-center space-x-2 bg-[var(--brand-primary)] hover:bg-[#07475F] text-white font-semibold px-5 py-2.5 rounded-lg shadow-md transition"
             >
-              <Play className="w-4 h-4 fill-current text-[var(--brand-accent)]" />
-              <span>Start Recording</span>
+              <FileText className="w-4 h-4 text-[var(--brand-accent)]" />
+              <span>Fetch Meeting Transcript & Summary</span>
             </button>
           ) : (
             <button
-              onClick={handleStopRecording}
-              className="flex items-center space-x-2 bg-[var(--danger)] hover:bg-[#B71C1C] text-white font-semibold px-5 py-2.5 rounded-lg shadow-md transition"
+              disabled
+              className="flex items-center space-x-2 bg-slate-500 text-white font-semibold px-5 py-2.5 rounded-lg shadow-md opacity-80 cursor-not-allowed"
             >
-              <Square className="w-4 h-4 fill-current" />
-              <span>Stop & Save Transcript</span>
+              <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+              <span>Fetching Graph Transcript...</span>
             </button>
           )}
 

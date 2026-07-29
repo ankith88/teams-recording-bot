@@ -21,6 +21,7 @@ builder.Services.AddSingleton<CallSignalingService>();
 
 builder.Services.AddSingleton<IEmailService, MsGraphEmailService>();
 builder.Services.AddSingleton<IAuthService, AuthService>();
+builder.Services.AddSingleton<IAiSummaryService, AiSummaryService>();
 
 builder.Services.AddCors(options =>
 {

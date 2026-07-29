@@ -51,9 +51,8 @@ namespace TeamsBot.Server.Controllers
                 return Ok(new { success = true, source = "graph_api", meetings });
             }
 
-            // Fallback: Generate user-tailored meetings for the specified user
-            var userMeetings = GetUserTailoredMeetings(cleanEmail);
-            return Ok(new { success = true, source = "user_tailored", meetings = userMeetings });
+            // Return empty list if no Graph API meetings exist
+            return Ok(new { success = true, source = "graph_api", meetings = new List<UpcomingMeetingDto>() });
         }
 
         private async Task<List<UpcomingMeetingDto>?> TryFetchGraphMeetingsAsync(string email)
