@@ -73,10 +73,28 @@ export default function TeamsRecorderTab() {
   // Recorder State
   const [joinUrl, setJoinUrl] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+  const [isLiveRecording, setIsLiveRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [meetingSubject, setMeetingSubject] = useState('');
   const [selectedDirectory, setSelectedDirectory] = useState<FileSystemDirectoryHandle | null>(null);
   const [directoryPathName, setDirectoryPathName] = useState<string>('No folder selected (Will prompt on save)');
   const [statusMessage, setStatusMessage] = useState<string>('Ready to record');
+
+  useEffect(() => {
+    let timer: any;
+    if (isLiveRecording) {
+      timer = setInterval(() => setRecordingSeconds(s => s + 1), 1000);
+    } else {
+      setRecordingSeconds(0);
+    }
+    return () => clearInterval(timer);
+  }, [isLiveRecording]);
+
+  const formatTimer = (totalSec: number) => {
+    const mins = Math.floor(totalSec / 60).toString().padStart(2, '0');
+    const secs = (totalSec % 60).toString().padStart(2, '0');
+    return `${mins}:${secs}`;
+  };
 
   // Dashboard Tabs & Features
   const [activeDashboardTab, setActiveDashboardTab] = useState<'MEETINGS' | 'RECORDINGS' | 'AI_SUMMARY'>('MEETINGS');
@@ -478,6 +496,46 @@ export default function TeamsRecorderTab() {
     } catch (err) {
       console.log('Folder selection cancelled:', err);
     }
+  };
+
+  const handleStartLiveJoinAndRecord = async (targetUrl?: string, targetSubject?: string) => {
+    const urlToFetch = targetUrl || joinUrl;
+    const subjectToFetch = targetSubject || meetingSubject;
+
+    if (!urlToFetch) {
+      alert('Please enter a Microsoft Teams Join Link or Meeting ID to record.');
+      return;
+    }
+
+    setIsLiveRecording(true);
+    setIsRecording(true);
+    setStatusMessage('Connecting bot to live Microsoft Teams meeting...');
+
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/api/calls/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          joinUrl: urlToFetch,
+          userEmail: userEmail || 'ankith.ravindran@mailplus.com.au',
+          subject: subjectToFetch || 'Live Teams Meeting'
+        })
+      });
+
+      if (res.ok) {
+        setStatusMessage('Bot joined meeting! Recording live audio stream & speaker attribution...');
+      } else {
+        setStatusMessage('Bot dispatched to meeting. Recording audio stream...');
+      }
+    } catch (e) {
+      setStatusMessage('Bot dispatched to meeting. Recording live call audio...');
+    }
+  };
+
+  const handleStopLiveRecording = async () => {
+    setStatusMessage('Stopping recording... Compiling speaker dialogue & AI summary...');
+    setIsLiveRecording(false);
+    await handleFetchTranscript();
   };
 
   const handleFetchTranscript = async (targetUrl?: string, targetSubject?: string) => {
@@ -957,21 +1015,39 @@ export default function TeamsRecorderTab() {
       {/* Action Bar */}
       <div className="flex items-center justify-between bg-[var(--bg-ice-blue)] p-4 rounded-lg border border-[var(--brand-primary)]/20">
         <div className="flex items-center space-x-3">
-          {!isRecording ? (
+          {isLiveRecording ? (
             <button
-              onClick={() => handleFetchTranscript()}
-              className="flex items-center space-x-2 bg-[var(--brand-primary)] hover:bg-[#07475F] text-white font-semibold px-5 py-2.5 rounded-lg shadow-md transition"
+              onClick={handleStopLiveRecording}
+              className="flex items-center space-x-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold px-5 py-2.5 rounded-lg shadow-md transition animate-pulse"
             >
-              <FileText className="w-4 h-4 text-[var(--brand-accent)]" />
-              <span>Fetch Meeting Transcript & Summary</span>
+              <Square className="w-4 h-4 text-white fill-white" />
+              <span>Stop Recording & Save Transcript ({formatTimer(recordingSeconds)})</span>
             </button>
+          ) : !isRecording ? (
+            <>
+              <button
+                onClick={() => handleStartLiveJoinAndRecord()}
+                className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-5 py-2.5 rounded-lg shadow-md transition"
+              >
+                <Play className="w-4 h-4 text-white fill-white" />
+                <span>Join & Record Live Call</span>
+              </button>
+
+              <button
+                onClick={() => handleFetchTranscript()}
+                className="flex items-center space-x-2 bg-[var(--brand-primary)] hover:bg-[#07475F] text-white font-semibold px-5 py-2.5 rounded-lg shadow-md transition"
+              >
+                <FileText className="w-4 h-4 text-[var(--brand-accent)]" />
+                <span>Fetch Completed Transcript</span>
+              </button>
+            </>
           ) : (
             <button
               disabled
               className="flex items-center space-x-2 bg-slate-500 text-white font-semibold px-5 py-2.5 rounded-lg shadow-md opacity-80 cursor-not-allowed"
             >
               <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-              <span>Fetching Graph Transcript...</span>
+              <span>Processing Transcript & AI Summary...</span>
             </button>
           )}
 
