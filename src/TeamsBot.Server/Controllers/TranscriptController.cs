@@ -66,7 +66,7 @@ namespace TeamsBot.Server.Controllers
                     return Ok(new
                     {
                         success = false,
-                        message = $"Could not locate an active online meeting on Microsoft Teams for URL/ID '{request.JoinUrl}'. Ensure the meeting URL is valid and hosted on Microsoft Teams."
+                        message = $"Could not locate an online meeting on Microsoft Teams for '{request.JoinUrl}'.\n\nTo fetch past transcripts:\n• Copy the FULL meeting link from your Outlook calendar (starts with 'https://teams.microsoft.com/l/meetup-join/...').\n• Ensure 'Start Transcription' was turned ON by the organizer during the meeting.\n\nFor live meetings: Click '▶ Join & Record Live Call' to record live audio & transcripts directly."
                     });
                 }
 
