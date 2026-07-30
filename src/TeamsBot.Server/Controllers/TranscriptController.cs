@@ -163,29 +163,104 @@ namespace TeamsBot.Server.Controllers
         {
             try
             {
+                joinUrl = joinUrl.Trim();
+
                 // If input looks like an explicit meeting ID already
                 if (!joinUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) && joinUrl.Length > 10 && !joinUrl.Contains("/"))
                 {
                     return joinUrl;
                 }
 
-                string encodedUrl = Uri.EscapeDataString(joinUrl);
-                string graphUrl = $"https://graph.microsoft.com/v1.0/users/{userEmail}/onlineMeetings?$filter=joinWebUrl eq '{encodedUrl}'";
+                // Generate candidate URLs for joinWebUrl filter
+                var candidateUrls = new List<string>();
 
-                var request = new HttpRequestMessage(HttpMethod.Get, graphUrl);
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                // 1. Original joinUrl
+                candidateUrls.Add(joinUrl);
 
-                var response = await _httpClient.SendAsync(request);
-                if (response.IsSuccessStatusCode)
+                // 2. Unescaped joinUrl (e.g. 19%3ameeting_ -> 19:meeting_)
+                string unescaped = Uri.UnescapeDataString(joinUrl);
+                if (unescaped != joinUrl)
                 {
-                    var json = await response.Content.ReadAsStringAsync();
-                    using var doc = JsonDocument.Parse(json);
-                    if (doc.RootElement.TryGetProperty("value", out var valArr) && valArr.GetArrayLength() > 0)
+                    candidateUrls.Add(unescaped);
+                }
+
+                // 3. URLs without query parameters (strip ?context=...)
+                if (joinUrl.Contains("?"))
+                {
+                    string noQuery = joinUrl.Split('?')[0];
+                    candidateUrls.Add(noQuery);
+
+                    string unescapedNoQuery = Uri.UnescapeDataString(noQuery);
+                    if (unescapedNoQuery != noQuery)
                     {
-                        var first = valArr[0];
-                        if (first.TryGetProperty("id", out var idProp))
+                        candidateUrls.Add(unescapedNoQuery);
+                    }
+                }
+
+                // Attempt lookup in onlineMeetings endpoint for each candidate URL
+                foreach (var candidate in candidateUrls)
+                {
+                    // Escape single quotes for OData string literal (do NOT URL encode slashes/colons)
+                    string safeODataString = candidate.Replace("'", "''");
+                    string graphUrl = $"https://graph.microsoft.com/v1.0/users/{userEmail}/onlineMeetings?$filter=joinWebUrl eq '{safeODataString}'";
+
+                    var request = new HttpRequestMessage(HttpMethod.Get, graphUrl);
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                    var response = await _httpClient.SendAsync(request);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var json = await response.Content.ReadAsStringAsync();
+                        using var doc = JsonDocument.Parse(json);
+                        if (doc.RootElement.TryGetProperty("value", out var valArr) && valArr.GetArrayLength() > 0)
                         {
-                            return idProp.GetString();
+                            var first = valArr[0];
+                            if (first.TryGetProperty("id", out var idProp))
+                            {
+                                string? foundId = idProp.GetString();
+                                if (!string.IsNullOrWhiteSpace(foundId))
+                                {
+                                    return foundId;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Fallback: Query user's recent calendar events to match meeting joinUrl or thread ID
+                var now = DateTime.UtcNow;
+                var startDateTime = now.AddDays(-7).ToString("yyyy-MM-ddTHH:mm:ssZ");
+                var endDateTime = now.AddDays(7).ToString("yyyy-MM-ddTHH:mm:ssZ");
+                string calUrl = $"https://graph.microsoft.com/v1.0/users/{userEmail}/calendarView?startDateTime={startDateTime}&endDateTime={endDateTime}&$top=100";
+
+                var calReq = new HttpRequestMessage(HttpMethod.Get, calUrl);
+                calReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var calResp = await _httpClient.SendAsync(calReq);
+                if (calResp.IsSuccessStatusCode)
+                {
+                    var json = await calResp.Content.ReadAsStringAsync();
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("value", out var eventsArr))
+                    {
+                        foreach (var evt in eventsArr.EnumerateArray())
+                        {
+                            if (evt.TryGetProperty("onlineMeeting", out var omObj))
+                            {
+                                string? omId = omObj.TryGetProperty("id", out var idP) ? idP.GetString() : null;
+                                string? omJoin = omObj.TryGetProperty("joinUrl", out var jP) ? jP.GetString() : null;
+
+                                if (!string.IsNullOrWhiteSpace(omJoin))
+                                {
+                                    if (candidateUrls.Exists(c => omJoin.Equals(c, StringComparison.OrdinalIgnoreCase) || omJoin.Contains(c, StringComparison.OrdinalIgnoreCase) || c.Contains(omJoin, StringComparison.OrdinalIgnoreCase)))
+                                    {
+                                        if (!string.IsNullOrWhiteSpace(omId))
+                                        {
+                                            return omId;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

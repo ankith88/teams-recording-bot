@@ -480,8 +480,11 @@ export default function TeamsRecorderTab() {
     }
   };
 
-  const handleFetchTranscript = async () => {
-    if (!joinUrl) {
+  const handleFetchTranscript = async (targetUrl?: string, targetSubject?: string) => {
+    const urlToFetch = targetUrl || joinUrl;
+    const subjectToFetch = targetSubject || meetingSubject;
+
+    if (!urlToFetch) {
       alert('Please select an upcoming meeting or enter a Microsoft Teams Join Link / Meeting ID.');
       return;
     }
@@ -494,9 +497,9 @@ export default function TeamsRecorderTab() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          joinUrl,
+          joinUrl: urlToFetch,
           userEmail: userEmail || 'ankith.ravindran@mailplus.com.au',
-          subject: meetingSubject || 'Teams Meeting'
+          subject: subjectToFetch || 'Teams Meeting'
         })
       });
 
@@ -509,7 +512,7 @@ export default function TeamsRecorderTab() {
         return;
       }
 
-      const activeSubject = data.meetingSubject || meetingSubject || 'Teams Meeting';
+      const activeSubject = data.meetingSubject || subjectToFetch || meetingSubject || 'Teams Meeting';
       const sanitizedTitle = activeSubject.replace(/[\\/:*?"<>|]/g, '_');
       const timestampStr = data.dateSaved || new Date().toLocaleString();
       const plainTextContent = data.plainTextContent || '';
@@ -676,12 +679,13 @@ export default function TeamsRecorderTab() {
     document.body.removeChild(element);
   };
 
-  // Quick Action: Select an upcoming meeting to prefill recorder controls
+  // Quick Action: Select an upcoming meeting and automatically trigger recording / transcript fetch
   const handleSelectMeetingToRecord = (meeting: UpcomingMeeting) => {
     setJoinUrl(meeting.joinUrl);
     setMeetingSubject(meeting.subject);
-    setStatusMessage(`Selected meeting: "${meeting.subject}". Click "Start Recording" when ready.`);
+    setStatusMessage(`Selected meeting: "${meeting.subject}". Fetching transcript...`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    handleFetchTranscript(meeting.joinUrl, meeting.subject);
   };
 
   const handleCopyJoinUrl = (meetingId: string, url: string) => {
@@ -955,7 +959,7 @@ export default function TeamsRecorderTab() {
         <div className="flex items-center space-x-3">
           {!isRecording ? (
             <button
-              onClick={handleFetchTranscript}
+              onClick={() => handleFetchTranscript()}
               className="flex items-center space-x-2 bg-[var(--brand-primary)] hover:bg-[#07475F] text-white font-semibold px-5 py-2.5 rounded-lg shadow-md transition"
             >
               <FileText className="w-4 h-4 text-[var(--brand-accent)]" />
