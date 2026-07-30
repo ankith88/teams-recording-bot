@@ -449,6 +449,49 @@ namespace TeamsBot.Server.Controllers
                                     string effectiveEmail = !string.IsNullOrWhiteSpace(organizerEmail) ? organizerEmail : targetUser;
                                     string? finalId = omId;
 
+                                    if (string.IsNullOrWhiteSpace(finalId) && !string.IsNullOrWhiteSpace(organizerEmail) && !organizerEmail.Equals(targetUser, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        try
+                                        {
+                                            string orgCalUrl = $"https://graph.microsoft.com/v1.0/users/{organizerEmail}/calendarView?startDateTime={startDateTime}&endDateTime={endDateTime}&$orderby=start/dateTime desc&$top=50";
+                                            var orgCalReq = new HttpRequestMessage(HttpMethod.Get, orgCalUrl);
+                                            orgCalReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                                            orgCalReq.Headers.Add("Prefer", "outlook.timezone=\"UTC\"");
+
+                                            var orgCalResp = await _httpClient.SendAsync(orgCalReq);
+                                            if (orgCalResp.IsSuccessStatusCode)
+                                            {
+                                                var orgJson = await orgCalResp.Content.ReadAsStringAsync();
+                                                using var orgDoc = JsonDocument.Parse(orgJson);
+                                                if (orgDoc.RootElement.TryGetProperty("value", out var orgEventsArr))
+                                                {
+                                                    foreach (var orgEvt in orgEventsArr.EnumerateArray())
+                                                    {
+                                                        string? orgOmJoin = orgEvt.TryGetProperty("onlineMeeting", out var orgOm) && orgOm.TryGetProperty("joinUrl", out var jP) ? jP.GetString() : null;
+                                                        string? orgOmId = orgEvt.TryGetProperty("onlineMeeting", out var orgOm2) && orgOm2.TryGetProperty("id", out var idP) ? idP.GetString() : null;
+
+                                                        string orgSubject = orgEvt.TryGetProperty("subject", out var sP) ? sP.GetString() ?? "" : "";
+                                                        string orgDigits = Regex.Replace($"{orgSubject} {orgOmJoin}", @"\D", "");
+
+                                                        if ((!string.IsNullOrWhiteSpace(extractedNumericId) && orgDigits.Contains(extractedNumericId)) ||
+                                                            (!string.IsNullOrWhiteSpace(orgOmJoin) && candidateUrls.Exists(c => orgOmJoin.Equals(c, StringComparison.OrdinalIgnoreCase) || orgOmJoin.Contains(c, StringComparison.OrdinalIgnoreCase))))
+                                                        {
+                                                            if (!string.IsNullOrWhiteSpace(orgOmId))
+                                                            {
+                                                                finalId = orgOmId;
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        catch (Exception exOrg)
+                                        {
+                                            Console.WriteLine($"[TranscriptController] Organizer calendar lookup warning: {exOrg.Message}");
+                                        }
+                                    }
+
                                     if (string.IsNullOrWhiteSpace(finalId) && !string.IsNullOrWhiteSpace(omJoin))
                                     {
                                         finalId = await LookupOnlineMeetingIdByJoinUrlAsync(accessToken, effectiveEmail, omJoin);
