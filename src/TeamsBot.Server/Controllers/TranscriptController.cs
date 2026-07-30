@@ -165,42 +165,63 @@ namespace TeamsBot.Server.Controllers
             {
                 joinUrl = joinUrl.Trim();
 
-                // If input looks like an explicit meeting ID already
+                // 1. If input looks like an explicit meeting ID already (no http/slashes)
                 if (!joinUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) && joinUrl.Length > 10 && !joinUrl.Contains("/"))
                 {
                     return joinUrl;
                 }
 
-                // Generate candidate URLs for joinWebUrl filter
-                var candidateUrls = new List<string>();
+                var candidateUrls = new List<string> { joinUrl };
 
-                // 1. Original joinUrl
-                candidateUrls.Add(joinUrl);
-
-                // 2. Unescaped joinUrl (e.g. 19%3ameeting_ -> 19:meeting_)
-                string unescaped = Uri.UnescapeDataString(joinUrl);
-                if (unescaped != joinUrl)
+                // 2. Extract numeric meeting ID if URL is in /meet/123456 format (e.g. https://teams.microsoft.com/meet/413353030648656?p=...)
+                string extractedNumericId = string.Empty;
+                var meetMatch = Regex.Match(joinUrl, @"/meet/(\d+)");
+                if (meetMatch.Success)
                 {
-                    candidateUrls.Add(unescaped);
+                    extractedNumericId = meetMatch.Groups[1].Value;
+                    candidateUrls.Add(extractedNumericId);
                 }
 
-                // 3. URLs without query parameters (strip ?context=...)
+                // 3. Follow HTTP redirect to expand /meet/ short URLs to full meetup-join URL
+                try
+                {
+                    using var handler = new HttpClientHandler { AllowAutoRedirect = true };
+                    using var redirectClient = new HttpClient(handler);
+                    redirectClient.Timeout = TimeSpan.FromSeconds(4);
+                    var req = new HttpRequestMessage(HttpMethod.Get, joinUrl);
+                    req.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+                    var resp = await redirectClient.SendAsync(req);
+                    string finalUrl = resp.RequestMessage?.RequestUri?.ToString() ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(finalUrl) && !finalUrl.Equals(joinUrl, StringComparison.OrdinalIgnoreCase))
+                    {
+                        candidateUrls.Add(finalUrl);
+                        if (finalUrl.Contains("?"))
+                        {
+                            candidateUrls.Add(finalUrl.Split('?')[0]);
+                        }
+                    }
+                }
+                catch (Exception exRedirect)
+                {
+                    Console.WriteLine($"[TranscriptController] Redirect resolution warning: {exRedirect.Message}");
+                }
+
+                // 4. Add unescaped and query-stripped variations
+                string unescaped = Uri.UnescapeDataString(joinUrl);
+                if (!candidateUrls.Contains(unescaped)) candidateUrls.Add(unescaped);
+
                 if (joinUrl.Contains("?"))
                 {
                     string noQuery = joinUrl.Split('?')[0];
-                    candidateUrls.Add(noQuery);
+                    if (!candidateUrls.Contains(noQuery)) candidateUrls.Add(noQuery);
 
                     string unescapedNoQuery = Uri.UnescapeDataString(noQuery);
-                    if (unescapedNoQuery != noQuery)
-                    {
-                        candidateUrls.Add(unescapedNoQuery);
-                    }
+                    if (!candidateUrls.Contains(unescapedNoQuery)) candidateUrls.Add(unescapedNoQuery);
                 }
 
-                // Attempt lookup in onlineMeetings endpoint for each candidate URL
+                // 5. Lookup in Graph API onlineMeetings endpoint for each candidate URL
                 foreach (var candidate in candidateUrls)
                 {
-                    // Escape single quotes for OData string literal (do NOT URL encode slashes/colons)
                     string safeODataString = candidate.Replace("'", "''");
                     string graphUrl = $"https://graph.microsoft.com/v1.0/users/{userEmail}/onlineMeetings?$filter=joinWebUrl eq '{safeODataString}'";
 
@@ -227,10 +248,10 @@ namespace TeamsBot.Server.Controllers
                     }
                 }
 
-                // Fallback: Query user's recent calendar events to match meeting joinUrl or thread ID
+                // 6. Fallback: Query user's calendar events (extended to 60 days in past for old meetings!)
                 var now = DateTime.UtcNow;
-                var startDateTime = now.AddDays(-7).ToString("yyyy-MM-ddTHH:mm:ssZ");
-                var endDateTime = now.AddDays(7).ToString("yyyy-MM-ddTHH:mm:ssZ");
+                var startDateTime = now.AddDays(-60).ToString("yyyy-MM-ddTHH:mm:ssZ");
+                var endDateTime = now.AddDays(14).ToString("yyyy-MM-ddTHH:mm:ssZ");
                 string calUrl = $"https://graph.microsoft.com/v1.0/users/{userEmail}/calendarView?startDateTime={startDateTime}&endDateTime={endDateTime}&$top=100";
 
                 var calReq = new HttpRequestMessage(HttpMethod.Get, calUrl);
@@ -245,20 +266,40 @@ namespace TeamsBot.Server.Controllers
                     {
                         foreach (var evt in eventsArr.EnumerateArray())
                         {
+                            string? omId = null;
+                            string? omJoin = null;
+
                             if (evt.TryGetProperty("onlineMeeting", out var omObj))
                             {
-                                string? omId = omObj.TryGetProperty("id", out var idP) ? idP.GetString() : null;
-                                string? omJoin = omObj.TryGetProperty("joinUrl", out var jP) ? jP.GetString() : null;
+                                omId = omObj.TryGetProperty("id", out var idP) ? idP.GetString() : null;
+                                omJoin = omObj.TryGetProperty("joinUrl", out var jP) ? jP.GetString() : null;
+                            }
 
-                                if (!string.IsNullOrWhiteSpace(omJoin))
+                            // Match candidate URL with event onlineMeeting joinUrl
+                            if (!string.IsNullOrWhiteSpace(omJoin))
+                            {
+                                if (candidateUrls.Exists(c => omJoin.Equals(c, StringComparison.OrdinalIgnoreCase) || omJoin.Contains(c, StringComparison.OrdinalIgnoreCase) || c.Contains(omJoin, StringComparison.OrdinalIgnoreCase)))
                                 {
-                                    if (candidateUrls.Exists(c => omJoin.Equals(c, StringComparison.OrdinalIgnoreCase) || omJoin.Contains(c, StringComparison.OrdinalIgnoreCase) || c.Contains(omJoin, StringComparison.OrdinalIgnoreCase)))
-                                    {
-                                        if (!string.IsNullOrWhiteSpace(omId))
-                                        {
-                                            return omId;
-                                        }
-                                    }
+                                    if (!string.IsNullOrWhiteSpace(omId)) return omId;
+                                }
+                            }
+
+                            // Match numeric meeting ID in body/subject (e.g. 413353030648656)
+                            if (!string.IsNullOrWhiteSpace(extractedNumericId))
+                            {
+                                string bodyPreview = evt.TryGetProperty("bodyPreview", out var bp) ? bp.GetString() ?? "" : "";
+                                string bodyContent = "";
+                                if (evt.TryGetProperty("body", out var bodyObj) && bodyObj.TryGetProperty("content", out var bc))
+                                {
+                                    bodyContent = bc.GetString() ?? "";
+                                }
+                                string subject = evt.TryGetProperty("subject", out var subj) ? subj.GetString() ?? "" : "";
+
+                                string combinedText = $"{subject} {bodyPreview} {bodyContent} {omJoin}".Replace(" ", "").Replace("-", "");
+
+                                if (combinedText.Contains(extractedNumericId))
+                                {
+                                    if (!string.IsNullOrWhiteSpace(omId)) return omId;
                                 }
                             }
                         }
