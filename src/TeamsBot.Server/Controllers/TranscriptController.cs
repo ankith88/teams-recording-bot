@@ -179,7 +179,10 @@ namespace TeamsBot.Server.Controllers
                 if (meetMatch.Success)
                 {
                     extractedNumericId = meetMatch.Groups[1].Value;
-                    candidateUrls.Add(extractedNumericId);
+                }
+                else if (Regex.IsMatch(joinUrl, @"^\d{9,15}$"))
+                {
+                    extractedNumericId = joinUrl;
                 }
 
                 // 3. Follow HTTP redirect to expand /meet/ short URLs to full meetup-join URL
@@ -219,36 +222,39 @@ namespace TeamsBot.Server.Controllers
                     if (!candidateUrls.Contains(unescapedNoQuery)) candidateUrls.Add(unescapedNoQuery);
                 }
 
-                // 5. Lookup in Graph API onlineMeetings endpoint for each candidate URL
+                // 5. Lookup in Graph API onlineMeetings endpoint for each valid URL candidate (joinWebUrl eq '...')
                 foreach (var candidate in candidateUrls)
                 {
-                    string safeODataString = candidate.Replace("'", "''");
-                    string graphUrl = $"https://graph.microsoft.com/v1.0/users/{userEmail}/onlineMeetings?$filter=joinWebUrl eq '{safeODataString}'";
-
-                    var request = new HttpRequestMessage(HttpMethod.Get, graphUrl);
-                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-
-                    var response = await _httpClient.SendAsync(request);
-                    if (response.IsSuccessStatusCode)
+                    if (candidate.StartsWith("http", StringComparison.OrdinalIgnoreCase))
                     {
-                        var json = await response.Content.ReadAsStringAsync();
-                        using var doc = JsonDocument.Parse(json);
-                        if (doc.RootElement.TryGetProperty("value", out var valArr) && valArr.GetArrayLength() > 0)
+                        string safeODataString = candidate.Replace("'", "''");
+                        string graphUrl = $"https://graph.microsoft.com/v1.0/users/{userEmail}/onlineMeetings?$filter=joinWebUrl eq '{safeODataString}'";
+
+                        var request = new HttpRequestMessage(HttpMethod.Get, graphUrl);
+                        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                        var response = await _httpClient.SendAsync(request);
+                        if (response.IsSuccessStatusCode)
                         {
-                            var first = valArr[0];
-                            if (first.TryGetProperty("id", out var idProp))
+                            var json = await response.Content.ReadAsStringAsync();
+                            using var doc = JsonDocument.Parse(json);
+                            if (doc.RootElement.TryGetProperty("value", out var valArr) && valArr.GetArrayLength() > 0)
                             {
-                                string? foundId = idProp.GetString();
-                                if (!string.IsNullOrWhiteSpace(foundId))
+                                var first = valArr[0];
+                                if (first.TryGetProperty("id", out var idProp))
                                 {
-                                    return foundId;
+                                    string? foundId = idProp.GetString();
+                                    if (!string.IsNullOrWhiteSpace(foundId))
+                                    {
+                                        return foundId;
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                // 6. Fallback: Query user's calendar events (extended to 60 days in past for old meetings!)
+                // 6. Fallback: Search Calendar Events (past 60 days to next 14 days)
                 var now = DateTime.UtcNow;
                 var startDateTime = now.AddDays(-60).ToString("yyyy-MM-ddTHH:mm:ssZ");
                 var endDateTime = now.AddDays(14).ToString("yyyy-MM-ddTHH:mm:ssZ");
@@ -275,16 +281,19 @@ namespace TeamsBot.Server.Controllers
                                 omJoin = omObj.TryGetProperty("joinUrl", out var jP) ? jP.GetString() : null;
                             }
 
-                            // Match candidate URL with event onlineMeeting joinUrl
+                            // A. Check if event onlineMeeting joinUrl matches candidate URLs
                             if (!string.IsNullOrWhiteSpace(omJoin))
                             {
                                 if (candidateUrls.Exists(c => omJoin.Equals(c, StringComparison.OrdinalIgnoreCase) || omJoin.Contains(c, StringComparison.OrdinalIgnoreCase) || c.Contains(omJoin, StringComparison.OrdinalIgnoreCase)))
                                 {
                                     if (!string.IsNullOrWhiteSpace(omId)) return omId;
+
+                                    string? resolvedFromCal = await LookupOnlineMeetingIdByJoinUrlAsync(accessToken, userEmail, omJoin);
+                                    if (!string.IsNullOrWhiteSpace(resolvedFromCal)) return resolvedFromCal;
                                 }
                             }
 
-                            // Match numeric meeting ID in body/subject (e.g. 413353030648656)
+                            // B. Check if numeric meeting ID (e.g. 413353030648656) appears in subject / body / joinUrl
                             if (!string.IsNullOrWhiteSpace(extractedNumericId))
                             {
                                 string bodyPreview = evt.TryGetProperty("bodyPreview", out var bp) ? bp.GetString() ?? "" : "";
@@ -295,11 +304,17 @@ namespace TeamsBot.Server.Controllers
                                 }
                                 string subject = evt.TryGetProperty("subject", out var subj) ? subj.GetString() ?? "" : "";
 
-                                string combinedText = $"{subject} {bodyPreview} {bodyContent} {omJoin}".Replace(" ", "").Replace("-", "");
+                                string combinedClean = Regex.Replace($"{subject} {bodyPreview} {bodyContent} {omJoin}", @"\s|-", "");
 
-                                if (combinedText.Contains(extractedNumericId))
+                                if (combinedClean.Contains(extractedNumericId))
                                 {
                                     if (!string.IsNullOrWhiteSpace(omId)) return omId;
+
+                                    if (!string.IsNullOrWhiteSpace(omJoin))
+                                    {
+                                        string? resolvedFromCal = await LookupOnlineMeetingIdByJoinUrlAsync(accessToken, userEmail, omJoin);
+                                        if (!string.IsNullOrWhiteSpace(resolvedFromCal)) return resolvedFromCal;
+                                    }
                                 }
                             }
                         }
@@ -309,6 +324,39 @@ namespace TeamsBot.Server.Controllers
             catch (Exception ex)
             {
                 Console.WriteLine($"[TranscriptController] Meeting lookup error: {ex.Message}");
+            }
+
+            return null;
+        }
+
+        private async Task<string?> LookupOnlineMeetingIdByJoinUrlAsync(string accessToken, string userEmail, string joinUrl)
+        {
+            try
+            {
+                string safeODataString = joinUrl.Replace("'", "''");
+                string graphUrl = $"https://graph.microsoft.com/v1.0/users/{userEmail}/onlineMeetings?$filter=joinWebUrl eq '{safeODataString}'";
+
+                var request = new HttpRequestMessage(HttpMethod.Get, graphUrl);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await _httpClient.SendAsync(request);
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("value", out var valArr) && valArr.GetArrayLength() > 0)
+                    {
+                        var first = valArr[0];
+                        if (first.TryGetProperty("id", out var idProp))
+                        {
+                            return idProp.GetString();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TranscriptController] LookupOnlineMeetingIdByJoinUrl error: {ex.Message}");
             }
 
             return null;
