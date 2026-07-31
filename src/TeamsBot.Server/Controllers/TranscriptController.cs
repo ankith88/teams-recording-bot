@@ -145,39 +145,47 @@ namespace TeamsBot.Server.Controllers
         [HttpGet("debug")]
         public async Task<IActionResult> DebugLookup([FromQuery] string? userEmail, [FromQuery] string? joinUrl)
         {
-            string email = string.IsNullOrWhiteSpace(userEmail) ? "claude.busse@mailplus.com.au" : userEmail.Trim().ToLowerInvariant();
             string targetUrl = string.IsNullOrWhiteSpace(joinUrl)
-                ? "https://teams.microsoft.com/l/meetup-join/19%3ameeting_NzI4ZDE5NjktNGEzOC00YWE1LTgwYzYtZWYwMDRjYjZhZmQ4%40thread.v2/0?context=%7b%22Tid%22%3a%22e7b892da-d63d-410e-8aba-3e936bb7838d%22%2c%22Oid%22%3a%22e6516f0b-df7a-4180-aee9-7aa5944d7c02%22%7d"
+                ? "https://teams.microsoft.com/l/meetup-join/19%3ameeting_Y2NmMTFkZWEtNjRhOS00Mjk3LTlkYWMtYzM3NmQ5ODlhNGYy%40thread.v2/0?context=%7b%22Tid%22%3a%22e7b892da-d63d-410e-8aba-3e936bb7838d%22%2c%22Oid%22%3a%222c51b814-ce5f-41f7-8baa-64eebc0457f5%22%7d"
                 : joinUrl.Trim();
 
             string? accessToken = await GetGraphAccessTokenAsync();
             if (accessToken == null) return BadRequest(new { error = "Failed to obtain Graph API access token" });
 
-            string? userGuid = await GetUserGuidAsync(accessToken, email);
+            string? extractedOid = null;
+            var oidMatch = Regex.Match(targetUrl, @"Oid%22%3a%22([a-f0-9\-]+)%22", RegexOptions.IgnoreCase);
+            if (oidMatch.Success) extractedOid = oidMatch.Groups[1].Value;
 
             try
             {
                 var results = new Dictionary<string, object>();
-                results["userGuid"] = userGuid ?? "null";
+                results["extractedOid"] = extractedOid ?? "null";
 
-                if (!string.IsNullOrWhiteSpace(userGuid))
+                if (!string.IsNullOrWhiteSpace(extractedOid))
                 {
-                    // 1. Try URL encoded
+                    // 1. Direct query to organizer onlineMeetings
                     string safeUrl1 = targetUrl.Replace("'", "''");
-                    string omUrl1 = $"https://graph.microsoft.com/v1.0/users/{userGuid}/onlineMeetings?$filter=joinWebUrl eq '{safeUrl1}'";
+                    string omUrl1 = $"https://graph.microsoft.com/v1.0/users/{extractedOid}/onlineMeetings?$filter=joinWebUrl eq '{safeUrl1}'";
                     var omReq1 = new HttpRequestMessage(HttpMethod.Get, omUrl1);
                     omReq1.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
                     var omResp1 = await _httpClient.SendAsync(omReq1);
-                    results["encoded_url_response"] = await omResp1.Content.ReadAsStringAsync();
+                    results["direct_oid_encoded_response"] = await omResp1.Content.ReadAsStringAsync();
 
-                    // 2. Try URL unescaped
+                    // 2. Unescaped query to organizer onlineMeetings
                     string unescaped = Uri.UnescapeDataString(targetUrl);
                     string safeUrl2 = unescaped.Replace("'", "''");
-                    string omUrl2 = $"https://graph.microsoft.com/v1.0/users/{userGuid}/onlineMeetings?$filter=joinWebUrl eq '{safeUrl2}'";
+                    string omUrl2 = $"https://graph.microsoft.com/v1.0/users/{extractedOid}/onlineMeetings?$filter=joinWebUrl eq '{safeUrl2}'";
                     var omReq2 = new HttpRequestMessage(HttpMethod.Get, omUrl2);
                     omReq2.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
                     var omResp2 = await _httpClient.SendAsync(omReq2);
-                    results["unescaped_url_response"] = await omResp2.Content.ReadAsStringAsync();
+                    results["direct_oid_unescaped_response"] = await omResp2.Content.ReadAsStringAsync();
+
+                    // 3. Organizer User Details
+                    string userUrl = $"https://graph.microsoft.com/v1.0/users/{extractedOid}";
+                    var uReq = new HttpRequestMessage(HttpMethod.Get, userUrl);
+                    uReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                    var uResp = await _httpClient.SendAsync(uReq);
+                    results["organizer_user_details"] = await uResp.Content.ReadAsStringAsync();
                 }
 
                 return Ok(results);
@@ -338,39 +346,7 @@ namespace TeamsBot.Server.Controllers
                     }
                 }
 
-                // 5. Direct lookup in Graph API onlineMeetings endpoint for userEmail
-                foreach (var candidate in candidateUrls)
-                {
-                    if (candidate.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string safeODataString = candidate.Replace("'", "''");
-                        string graphUrl = $"https://graph.microsoft.com/v1.0/users/{userEmail}/onlineMeetings?$filter=joinWebUrl eq '{safeODataString}'";
-
-                        var request = new HttpRequestMessage(HttpMethod.Get, graphUrl);
-                        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-
-                        var response = await _httpClient.SendAsync(request);
-                        if (response.IsSuccessStatusCode)
-                        {
-                            var json = await response.Content.ReadAsStringAsync();
-                            using var doc = JsonDocument.Parse(json);
-                            if (doc.RootElement.TryGetProperty("value", out var valArr) && valArr.GetArrayLength() > 0)
-                            {
-                                var first = valArr[0];
-                                if (first.TryGetProperty("id", out var idProp))
-                                {
-                                    string? foundId = idProp.GetString();
-                                    if (!string.IsNullOrWhiteSpace(foundId))
-                                    {
-                                        return new ResolvedMeetingInfo { MeetingId = foundId, EffectiveUserEmail = userEmail };
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 6. Calendar View Lookup across target user and organizer OID
+                // 5. Direct lookup in Graph API onlineMeetings endpoint using organizerOid or userEmail
                 string? organizerOid = null;
                 var oidMatch = Regex.Match(joinUrl, @"Oid%22%3a%22([a-f0-9\-]+)%22", RegexOptions.IgnoreCase);
                 if (!oidMatch.Success)
@@ -382,6 +358,51 @@ namespace TeamsBot.Server.Controllers
                     organizerOid = oidMatch.Groups[1].Value;
                 }
 
+                var idsToQuery = new List<string>();
+                if (!string.IsNullOrWhiteSpace(organizerOid)) idsToQuery.Add(organizerOid);
+                idsToQuery.Add(userEmail);
+
+                foreach (var queryId in idsToQuery)
+                {
+                    foreach (var candidate in candidateUrls)
+                    {
+                        if (candidate.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string safeODataString = candidate.Replace("'", "''");
+                            string graphUrl = $"https://graph.microsoft.com/v1.0/users/{queryId}/onlineMeetings?$filter=joinWebUrl eq '{safeODataString}'";
+
+                            var request = new HttpRequestMessage(HttpMethod.Get, graphUrl);
+                            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                            var response = await _httpClient.SendAsync(request);
+                            if (response.IsSuccessStatusCode)
+                            {
+                                var json = await response.Content.ReadAsStringAsync();
+                                using var doc = JsonDocument.Parse(json);
+                                if (doc.RootElement.TryGetProperty("value", out var valArr) && valArr.GetArrayLength() > 0)
+                                {
+                                    var first = valArr[0];
+                                    if (first.TryGetProperty("id", out var idProp))
+                                    {
+                                        string? foundId = idProp.GetString();
+                                        string? subj = first.TryGetProperty("subject", out var sP) ? sP.GetString() : null;
+                                        if (!string.IsNullOrWhiteSpace(foundId))
+                                        {
+                                            return new ResolvedMeetingInfo
+                                            {
+                                                MeetingId = foundId,
+                                                EffectiveUserEmail = queryId,
+                                                MeetingSubject = subj ?? "Teams Meeting"
+                                            };
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 6. Calendar View Lookup across target user and organizer OID
                 var usersToQuery = new List<string> { userEmail };
                 if (!string.IsNullOrWhiteSpace(organizerOid) && !usersToQuery.Contains(organizerOid))
                 {
