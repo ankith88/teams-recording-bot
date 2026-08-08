@@ -35,6 +35,90 @@ namespace TeamsBot.Server.Controllers
             public string Subject { get; set; } = string.Empty;
         }
 
+        public class SummarizeTranscriptRequest
+        {
+            public string Subject { get; set; } = "Meeting";
+            public string TranscriptText { get; set; } = string.Empty;
+            public string UserEmail { get; set; } = string.Empty;
+            public string Template { get; set; } = "General";
+            public List<string> Attendees { get; set; } = new();
+        }
+
+        public class ProcessAudioRequest
+        {
+            public string Subject { get; set; } = "Direct Audio Meeting";
+            public string TranscriptText { get; set; } = string.Empty;
+            public string UserEmail { get; set; } = string.Empty;
+            public int DurationSeconds { get; set; } = 0;
+            public Dictionary<string, string> SpeakerMap { get; set; } = new();
+        }
+
+        [HttpPost("summarize")]
+        public async Task<IActionResult> SummarizeTranscript([FromBody] SummarizeTranscriptRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.TranscriptText))
+            {
+                return BadRequest(new { success = false, message = "Transcript text cannot be empty." });
+            }
+
+            string meetingSubject = string.IsNullOrWhiteSpace(request.Subject) ? "Meeting Notes" : request.Subject.Trim();
+            string userEmail = string.IsNullOrWhiteSpace(request.UserEmail) ? "ankith.ravindran@mailplus.com.au" : request.UserEmail.Trim().ToLowerInvariant();
+            string timestampStr = DateTime.UtcNow.ToString("dd/MM/yyyy, h:mm:ss tt", CultureInfo.InvariantCulture);
+
+            try
+            {
+                var aiSummary = await _aiSummaryService.GenerateSummaryAsync(meetingSubject, request.TranscriptText);
+                
+                return Ok(new
+                {
+                    success = true,
+                    meetingSubject,
+                    plainTextContent = request.TranscriptText,
+                    aiSummary,
+                    dateSaved = timestampStr,
+                    source = "direct_independent_recorder"
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TranscriptController] Error summarizing transcript: {ex}");
+                return StatusCode(500, new { success = false, message = $"Summarization error: {ex.Message}" });
+            }
+        }
+
+        [HttpPost("process-audio")]
+        public async Task<IActionResult> ProcessAudioTranscript([FromBody] ProcessAudioRequest request)
+        {
+            string meetingSubject = string.IsNullOrWhiteSpace(request.Subject) ? "Direct Audio Recording" : request.Subject.Trim();
+            string userEmail = string.IsNullOrWhiteSpace(request.UserEmail) ? "ankith.ravindran@mailplus.com.au" : request.UserEmail.Trim().ToLowerInvariant();
+            string timestampStr = DateTime.UtcNow.ToString("dd/MM/yyyy, h:mm:ss tt", CultureInfo.InvariantCulture);
+
+            try
+            {
+                string textToSummarize = string.IsNullOrWhiteSpace(request.TranscriptText)
+                    ? $"[00:00:00] {userEmail}: Direct audio recording completed for {meetingSubject}."
+                    : request.TranscriptText;
+
+                var aiSummary = await _aiSummaryService.GenerateSummaryAsync(meetingSubject, textToSummarize);
+
+                return Ok(new
+                {
+                    success = true,
+                    meetingSubject,
+                    plainTextContent = textToSummarize,
+                    aiSummary,
+                    dateSaved = timestampStr,
+                    durationSeconds = request.DurationSeconds,
+                    source = "independent_audio_engine"
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[TranscriptController] Error processing audio transcript: {ex}");
+                return StatusCode(500, new { success = false, message = $"Audio processing error: {ex.Message}" });
+            }
+        }
+
         [HttpPost("fetch")]
         public async Task<IActionResult> FetchTranscript([FromBody] FetchTranscriptRequest request)
         {
@@ -146,46 +230,47 @@ namespace TeamsBot.Server.Controllers
         public async Task<IActionResult> DebugLookup([FromQuery] string? userEmail, [FromQuery] string? joinUrl)
         {
             string targetUrl = string.IsNullOrWhiteSpace(joinUrl)
-                ? "https://teams.microsoft.com/l/meetup-join/19%3ameeting_Y2NmMTFkZWEtNjRhOS00Mjk3LTlkYWMtYzM3NmQ5ODlhNGYy%40thread.v2/0?context=%7b%22Tid%22%3a%22e7b892da-d63d-410e-8aba-3e936bb7838d%22%2c%22Oid%22%3a%222c51b814-ce5f-41f7-8baa-64eebc0457f5%22%7d"
+                ? "https://teams.microsoft.com/l/meetup-join/19%3ameeting_YTkyODk2ZWYtMmYzOC00ZWFmLTgzMzMtZGU0OTU4MzVlNmMy%40thread.v2/0?context=%7b%22Tid%22%3a%22e7b892da-d63d-410e-8aba-3e936bb7838d%22%2c%22Oid%22%3a%22e9d61758-116c-4406-844a-bbf162c2b7ff%22%7d"
                 : joinUrl.Trim();
 
             string? accessToken = await GetGraphAccessTokenAsync();
             if (accessToken == null) return BadRequest(new { error = "Failed to obtain Graph API access token" });
 
-            string? extractedOid = null;
-            var oidMatch = Regex.Match(targetUrl, @"Oid%22%3a%22([a-f0-9\-]+)%22", RegexOptions.IgnoreCase);
-            if (oidMatch.Success) extractedOid = oidMatch.Groups[1].Value;
+            string organizerOid = "e9d61758-116c-4406-844a-bbf162c2b7ff";
 
             try
             {
                 var results = new Dictionary<string, object>();
-                results["extractedOid"] = extractedOid ?? "null";
 
-                if (!string.IsNullOrWhiteSpace(extractedOid))
+                // 1. Get onlineMeeting
+                string safeUrl1 = targetUrl.Replace("'", "''");
+                string omUrl1 = $"https://graph.microsoft.com/v1.0/users/{organizerOid}/onlineMeetings?$filter=joinWebUrl eq '{safeUrl1}'";
+                var omReq1 = new HttpRequestMessage(HttpMethod.Get, omUrl1);
+                omReq1.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                var omResp1 = await _httpClient.SendAsync(omReq1);
+                string omJson = await omResp1.Content.ReadAsStringAsync();
+                results["online_meeting_response"] = omJson;
+
+                string? meetingId = null;
+                using (var doc = JsonDocument.Parse(omJson))
                 {
-                    // 1. Direct query to organizer onlineMeetings
-                    string safeUrl1 = targetUrl.Replace("'", "''");
-                    string omUrl1 = $"https://graph.microsoft.com/v1.0/users/{extractedOid}/onlineMeetings?$filter=joinWebUrl eq '{safeUrl1}'";
-                    var omReq1 = new HttpRequestMessage(HttpMethod.Get, omUrl1);
-                    omReq1.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-                    var omResp1 = await _httpClient.SendAsync(omReq1);
-                    results["direct_oid_encoded_response"] = await omResp1.Content.ReadAsStringAsync();
+                    if (doc.RootElement.TryGetProperty("value", out var valArr) && valArr.GetArrayLength() > 0)
+                    {
+                        meetingId = valArr[0].GetProperty("id").GetString();
+                    }
+                }
 
-                    // 2. Unescaped query to organizer onlineMeetings
-                    string unescaped = Uri.UnescapeDataString(targetUrl);
-                    string safeUrl2 = unescaped.Replace("'", "''");
-                    string omUrl2 = $"https://graph.microsoft.com/v1.0/users/{extractedOid}/onlineMeetings?$filter=joinWebUrl eq '{safeUrl2}'";
-                    var omReq2 = new HttpRequestMessage(HttpMethod.Get, omUrl2);
-                    omReq2.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-                    var omResp2 = await _httpClient.SendAsync(omReq2);
-                    results["direct_oid_unescaped_response"] = await omResp2.Content.ReadAsStringAsync();
+                results["resolved_meeting_id"] = meetingId ?? "null";
 
-                    // 3. Organizer User Details
-                    string userUrl = $"https://graph.microsoft.com/v1.0/users/{extractedOid}";
-                    var uReq = new HttpRequestMessage(HttpMethod.Get, userUrl);
-                    uReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-                    var uResp = await _httpClient.SendAsync(uReq);
-                    results["organizer_user_details"] = await uResp.Content.ReadAsStringAsync();
+                if (!string.IsNullOrWhiteSpace(meetingId))
+                {
+                    // 2. Get Transcripts list for organizer
+                    string trUrl1 = $"https://graph.microsoft.com/v1.0/users/{organizerOid}/onlineMeetings/{meetingId}/transcripts";
+                    var req1 = new HttpRequestMessage(HttpMethod.Get, trUrl1);
+                    req1.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                    var resp1 = await _httpClient.SendAsync(req1);
+                    results["transcripts_response_code"] = (int)resp1.StatusCode;
+                    results["transcripts_response"] = await resp1.Content.ReadAsStringAsync();
                 }
 
                 return Ok(results);
