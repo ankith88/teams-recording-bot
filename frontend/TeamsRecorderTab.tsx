@@ -155,6 +155,19 @@ export default function TeamsRecorderTab() {
   const animationFrameRef = useRef<number | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
+  // State Refs for continuous event handler closures
+  const isRecordingRef = useRef<boolean>(isRecording);
+  const isPausedRef = useRef<boolean>(isPaused);
+  const recordingSecondsRef = useRef<number>(recordingSeconds);
+  const activeSpeakerTagRef = useRef<string>(activeSpeakerTag);
+  const userEmailRef = useRef<string>(userEmail);
+
+  useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+  useEffect(() => { recordingSecondsRef.current = recordingSeconds; }, [recordingSeconds]);
+  useEffect(() => { activeSpeakerTagRef.current = activeSpeakerTag; }, [activeSpeakerTag]);
+  useEffect(() => { userEmailRef.current = userEmail; }, [userEmail]);
+
   // ----------------------------------------------------
   // Timer & Session Restoration
   // ----------------------------------------------------
@@ -490,6 +503,16 @@ export default function TeamsRecorderTab() {
       return;
     }
 
+    // Clean up any stale existing instance
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.stop();
+      } catch (e) {}
+      recognitionRef.current = null;
+    }
+
     try {
       const recognition = new SpeechRecognition();
       recognitionRef.current = recognition;
@@ -502,11 +525,12 @@ export default function TeamsRecorderTab() {
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcript = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
-            const timestamp = formatTimer(recordingSeconds);
+            const timestamp = formatTimer(recordingSecondsRef.current);
+            const currentSpeaker = activeSpeakerTagRef.current || formatDisplayName(userEmailRef.current) || 'Speaker';
             const line: TranscriptLine = {
               id: `line-${Date.now()}-${Math.random()}`,
               timestamp,
-              speaker: activeSpeakerTag || formatDisplayName(userEmail) || 'Speaker',
+              speaker: currentSpeaker,
               text: transcript.trim()
             };
             setLiveTranscriptLines(prev => [...prev, line]);
@@ -519,50 +543,68 @@ export default function TeamsRecorderTab() {
       };
 
       recognition.onerror = (err: any) => {
-        console.warn('Speech recognition error:', err);
+        console.warn('[SpeechRecognition] Engine notice:', err?.error || err);
       };
 
       recognition.onend = () => {
-        if (isRecording && !isPaused && recognitionRef.current) {
-          try { recognition.start(); } catch (e) {}
+        // Auto-reconnect session when browser continuous session times out (typically after ~28-30 lines)
+        if (isRecordingRef.current && !isPausedRef.current) {
+          console.log('[SpeechRecognition] Session ended, auto-restarting continuous live capture...');
+          setTimeout(() => {
+            if (isRecordingRef.current && !isPausedRef.current) {
+              initSpeechRecognition();
+            }
+          }, 250);
         }
       };
 
       recognition.start();
     } catch (e) {
-      console.warn('Speech recognition init error:', e);
+      console.warn('[SpeechRecognition] Init error:', e);
     }
   };
 
   const togglePauseRecording = () => {
     if (isPaused) {
       setIsPaused(false);
+      isPausedRef.current = false;
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
         mediaRecorderRef.current.resume();
       }
-      if (recognitionRef.current) {
-        try { recognitionRef.current.start(); } catch (e) {}
-      }
+      initSpeechRecognition();
       setStatusMessage('Recording resumed...');
     } else {
       setIsPaused(true);
+      isPausedRef.current = true;
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.pause();
       }
       if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch (e) {}
+        try {
+          recognitionRef.current.onend = null;
+          recognitionRef.current.stop();
+        } catch (e) {}
+        recognitionRef.current = null;
       }
       setStatusMessage('Recording paused.');
     }
   };
 
   const stopRecordingEngine = () => {
+    isRecordingRef.current = false;
+    isPausedRef.current = false;
+
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
     }
 
     if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch (e) {}
+      try {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.stop();
+      } catch (e) {}
+      recognitionRef.current = null;
     }
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
