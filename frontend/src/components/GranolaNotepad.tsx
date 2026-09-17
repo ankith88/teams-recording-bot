@@ -4,7 +4,8 @@ import {
   Search, Users, User, ArrowRight, Check, Copy, Share2, 
   Trash2, MessageSquare, FileText, CheckCircle2, AlertCircle, 
   HelpCircle, ChevronRight, Tag, Download, RefreshCw, Send,
-  Layers, Volume2, ShieldCheck, ExternalLink, Flame, CornerDownLeft
+  Layers, Volume2, ShieldCheck, ExternalLink, Flame, CornerDownLeft,
+  CalendarCheck, Info
 } from 'lucide-react';
 import { useAudioRecorder, TranscriptSegment } from '../hooks/useAudioRecorder';
 
@@ -68,73 +69,44 @@ interface GranolaNotepadProps {
 
 export default function GranolaNotepad({
   userEmail,
-  displayName = 'Ankith Ravindran',
+  displayName = 'User',
   apiBaseUrl = '',
   onLogout
 }: GranolaNotepadProps) {
-  // Current Meeting State
+  // Current Meeting State (100% Clean, No Demo Data)
   const [meetingId, setMeetingId] = useState<string>(() => 'mtg-' + Date.now());
-  const [subject, setSubject] = useState<string>('Product & Strategy Sync');
+  const [subject, setSubject] = useState<string>('');
   const [templatePreset, setTemplatePreset] = useState<string>('General');
-  const [attendees, setAttendees] = useState<string[]>(['Sarah Chen', 'Alex Miller']);
+  const [attendees, setAttendees] = useState<string[]>([]);
   const [newAttendeeName, setNewAttendeeName] = useState<string>('');
   
-  // Shorthand Human Notes (Left Pane)
-  const [rawHumanNotes, setRawHumanNotes] = useState<string>(
-    `- Review Q3 engineering deliverables & milestone targets\n` +
-    `- @Sarah: proposed reducing API response latency under 200ms\n` +
-    `- @Alex: database migration scheduled for Friday evening\n` +
-    `- ! Agreed to ship v2.0 beta next Tuesday\n` +
-    `- [ ] Prepare release documentation and rollout checklist`
-  );
+  // Shorthand Human Notes (Left Pane) - Clean Initial State
+  const [rawHumanNotes, setRawHumanNotes] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
 
-  // Transcript & AI Enhanced State (Right Pane)
-  const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([
-    {
-      id: 'seg-init-1',
-      timestampFormatted: '00:00:12',
-      speakerName: displayName,
-      speakerType: 'User',
-      text: 'Good morning everyone, let us quickly align on the upcoming release milestones and any technical blockers.',
-      confidence: 0.98
-    },
-    {
-      id: 'seg-init-2',
-      timestampFormatted: '00:00:35',
-      speakerName: 'Sarah Chen',
-      speakerType: 'Participant',
-      text: 'On the backend side, our main priority is shaving down API latency to under 200ms before scaling traffic.',
-      confidence: 0.96
-    },
-    {
-      id: 'seg-init-3',
-      timestampFormatted: '00:01:05',
-      speakerName: 'Alex Miller',
-      speakerType: 'Participant',
-      text: 'I will take care of the database indexing migration this Friday night during the low-traffic window.',
-      confidence: 0.95
-    }
-  ]);
-
+  // Transcript & AI Enhanced State (Right Pane) - Clean Initial State
+  const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
   const [enhancedSummary, setEnhancedSummary] = useState<AiSummaryData | null>(null);
   const [isEnhancing, setIsEnhancing] = useState<boolean>(false);
-  const [activeRightTab, setActiveRightTab] = useState<'TRANSCRIPT' | 'ENHANCED' | 'CHAT'>('ENHANCED');
+  const [activeRightTab, setActiveRightTab] = useState<'ENHANCED' | 'TRANSCRIPT' | 'CHAT'>('ENHANCED');
 
   // Chat Assistant State
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; time: string }>>([
     {
       role: 'assistant',
-      content: `👋 I'm your Minutes.Plus Meeting Assistant. I have full context on your notes and transcript for **${subject}**. Ask me to draft follow-up emails, summarize for Slack, or extract technical risks!`,
-      time: 'Just now'
+      content: `👋 Minutes.Plus Meeting Assistant ready. Start recording mixed audio or type notes, then ask me to draft follow-up emails, format Slack messages, or extract action items!`,
+      time: 'Ready'
     }
   ]);
   const [chatInput, setChatInput] = useState<string>('');
   const [isChatSending, setIsChatSending] = useState<boolean>(false);
 
-  // Calendar State
+  // Calendar State & Diagnostics
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [isCalendarConnected, setIsCalendarConnected] = useState<boolean>(false);
+  const [calendarStatusMessage, setCalendarStatusMessage] = useState<string>('Checking calendar status...');
   const [isLoadingCalendar, setIsLoadingCalendar] = useState<boolean>(false);
+  const [showCalendarDetails, setShowCalendarDetails] = useState<boolean>(false);
 
   // Semantic Search & Workspace History Modal
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
@@ -143,7 +115,7 @@ export default function GranolaNotepad({
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [historicalMeetings, setHistoricalMeetings] = useState<MeetingItem[]>([]);
 
-  // UI Toast / Feedback
+  // UI Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -217,46 +189,34 @@ export default function GranolaNotepad({
     return () => cancelAnimationFrame(animId);
   }, [audio.isRecording, audio.isPaused, audio.userVolume, audio.participantVolume]);
 
-  // Load Calendar Meetings on Mount
+  // Load Calendar Status & Meetings on Mount
   useEffect(() => {
-    fetchCalendarEvents();
+    fetchCalendarData();
     fetchHistoricalMeetings();
   }, [userEmail]);
 
-  const fetchCalendarEvents = async () => {
+  const fetchCalendarData = async () => {
     setIsLoadingCalendar(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/api/calendar/meetings?email=${encodeURIComponent(userEmail)}`);
-      const data = await res.json();
-      if (data?.meetings && Array.isArray(data.meetings) && data.meetings.length > 0) {
-        setCalendarEvents(data.meetings);
+      // 1. Check Status
+      const statusRes = await fetch(`${apiBaseUrl}/api/calendar/status?email=${encodeURIComponent(userEmail)}`);
+      const statusData = await statusRes.json();
+      setIsCalendarConnected(Boolean(statusData?.connected));
+      setCalendarStatusMessage(statusData?.message || 'Calendar status verified.');
+
+      // 2. Fetch Events
+      const meetingsRes = await fetch(`${apiBaseUrl}/api/calendar/meetings?email=${encodeURIComponent(userEmail)}`);
+      const meetingsData = await meetingsRes.json();
+      if (meetingsData?.meetings && Array.isArray(meetingsData.meetings)) {
+        setCalendarEvents(meetingsData.meetings);
       } else {
-        setCalendarEvents([
-          {
-            id: 'cal-1',
-            subject: 'Sprint Planning & Architecture Sync',
-            startTime: '10:00 AM',
-            endTime: '10:45 AM',
-            organizer: 'sarah.chen@mailplus.com.au'
-          },
-          {
-            id: 'cal-2',
-            subject: 'Client Discovery Call: Enterprise Deal',
-            startTime: '02:00 PM',
-            endTime: '02:30 PM',
-            organizer: 'alex.miller@mailplus.com.au'
-          },
-          {
-            id: 'cal-3',
-            subject: 'Weekly 1:1 Sync with Team Lead',
-            startTime: '04:30 PM',
-            endTime: '05:00 PM',
-            organizer: 'david.kim@mailplus.com.au'
-          }
-        ]);
+        setCalendarEvents([]);
       }
-    } catch (e) {
-      console.warn('Calendar fetch fallback:', e);
+    } catch (e: any) {
+      console.warn('Calendar fetch error:', e);
+      setIsCalendarConnected(false);
+      setCalendarStatusMessage('Could not reach calendar service. Check backend connection.');
+      setCalendarEvents([]);
     } finally {
       setIsLoadingCalendar(false);
     }
@@ -301,6 +261,11 @@ export default function GranolaNotepad({
 
   // Trigger AI Note Enhancement
   const handleEnhanceNotes = async () => {
+    if (!rawHumanNotes.trim() && transcriptSegments.length === 0) {
+      showToast('Please type shorthand notes or record audio first.');
+      return;
+    }
+
     setIsEnhancing(true);
     setActiveRightTab('ENHANCED');
     try {
@@ -308,7 +273,7 @@ export default function GranolaNotepad({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          meetingSubject: subject,
+          meetingSubject: subject || 'Untitled Meeting',
           rawHumanNotes,
           templatePreset,
           attendees,
@@ -319,9 +284,9 @@ export default function GranolaNotepad({
       const data = await res.json();
       if (data?.enhancedSummary) {
         setEnhancedSummary(data.enhancedSummary);
-        showToast('✨ Notes enhanced with transcript context!');
+        showToast('✨ Notes synthesized with transcript context!');
       } else {
-        showToast('Notice: Enhancement generated locally.');
+        showToast('Notice: Enhancement completed.');
       }
     } catch (err) {
       console.error('Enhancement error:', err);
@@ -330,11 +295,6 @@ export default function GranolaNotepad({
       setIsEnhancing(false);
     }
   };
-
-  // Perform Initial Enhancement on Load
-  useEffect(() => {
-    handleEnhanceNotes();
-  }, []);
 
   // Handle Meeting Chat
   const handleSendChatMessage = async (promptText?: string) => {
@@ -370,7 +330,7 @@ export default function GranolaNotepad({
         ...prev,
         {
           role: 'assistant',
-          content: `I analyzed your meeting notes and transcript for **${subject}**. Action items and key takeaways have been synchronized in the Enhanced tab.`,
+          content: `I analyzed your meeting notes and transcript for **${subject || 'Meeting'}**. Check the Enhanced tab for synthesized outcomes or ask for email/Slack drafts.`,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
@@ -421,6 +381,9 @@ export default function GranolaNotepad({
     setSubject(evt.subject);
     const newId = 'mtg-' + Date.now();
     setMeetingId(newId);
+    if (evt.organizer && !attendees.includes(evt.organizer)) {
+      setAttendees([evt.organizer]);
+    }
     showToast(`Linked meeting: "${evt.subject}"`);
   };
 
@@ -456,7 +419,7 @@ export default function GranolaNotepad({
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               className="bg-transparent text-lg font-bold text-[var(--brand-ink)] px-2 py-1 rounded-md hover:bg-white/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30 w-full transition-colors border border-transparent focus:border-[var(--brand-primary)]"
-              placeholder="Meeting Subject..."
+              placeholder="Untitled Meeting (Type meeting subject here...)"
             />
           </div>
         </div>
@@ -558,32 +521,59 @@ export default function GranolaNotepad({
       </div>
 
       {/* ---------------------------------------------------- */}
-      {/* CALENDAR & ATTENDEE BAR                              */}
+      {/* CALENDAR BAR WITH LIVE CONNECTIVITY STATUS           */}
       {/* ---------------------------------------------------- */}
-      <div className="flex items-center justify-between px-6 py-2 bg-[var(--bg-surface)] border-b border-[var(--border)] text-xs">
+      <div className="flex items-center justify-between px-6 py-2.5 bg-[var(--bg-surface)] border-b border-[var(--border)] text-xs">
         
-        {/* Calendar Quick Sync Chips */}
-        <div className="flex items-center gap-2 overflow-x-auto py-0.5 no-scrollbar flex-1">
-          <div className="flex items-center gap-1.5 text-[var(--brand-ink-soft)] font-bold whitespace-nowrap mr-1">
-            <Calendar className="w-3.5 h-3.5 text-[var(--brand-primary)]" />
-            <span>Today's Calendar:</span>
-          </div>
+        {/* Calendar Connection Status & Event Pills */}
+        <div className="flex items-center gap-2.5 overflow-x-auto py-0.5 no-scrollbar flex-1">
+          {/* Status Indicator Pill */}
+          <button
+            onClick={() => setShowCalendarDetails(true)}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-all whitespace-nowrap shadow-sm ${
+              isCalendarConnected 
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+            }`}
+            title="Click to view calendar connection diagnostics"
+          >
+            <span className={`w-2 h-2 rounded-full ${isCalendarConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+            <span>{isCalendarConnected ? 'Calendar Connected' : 'Calendar Check'}</span>
+            <Info className="w-3 h-3 opacity-70" />
+          </button>
 
-          {calendarEvents.map((evt) => (
-            <button
-              key={evt.id}
-              onClick={() => associateCalendarEvent(evt)}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all whitespace-nowrap ${
-                subject === evt.subject
-                  ? 'bg-[var(--bg-ice-blue)] text-[var(--brand-primary)] border-[var(--brand-primary)]/40 font-bold'
-                  : 'bg-[var(--bg-cream)] text-[var(--brand-ink-soft)] border-[var(--border)] hover:bg-[var(--bg-offwhite)]'
-              }`}
-            >
-              <Clock className="w-3 h-3 text-[var(--brand-ink-soft)]" />
-              <span>{evt.subject}</span>
-              <span className="text-[10px] opacity-75">({evt.startTime})</span>
-            </button>
-          ))}
+          {/* Refresh Calendar Button */}
+          <button
+            onClick={fetchCalendarData}
+            disabled={isLoadingCalendar}
+            className="p-1.5 rounded-full hover:bg-[var(--bg-cream)] text-[var(--brand-ink-soft)] transition-colors"
+            title="Refresh Microsoft 365 Calendar"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoadingCalendar ? 'animate-spin text-[var(--brand-primary)]' : ''}`} />
+          </button>
+
+          {/* Real Meetings from Calendar or Empty State */}
+          {calendarEvents.length > 0 ? (
+            calendarEvents.map((evt) => (
+              <button
+                key={evt.id}
+                onClick={() => associateCalendarEvent(evt)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all whitespace-nowrap ${
+                  subject === evt.subject
+                    ? 'bg-[var(--bg-ice-blue)] text-[var(--brand-primary)] border-[var(--brand-primary)]/50 shadow-sm'
+                    : 'bg-[var(--bg-cream)] text-[var(--brand-ink-soft)] border-[var(--border)] hover:bg-[var(--bg-offwhite)]'
+                }`}
+              >
+                <Calendar className="w-3 h-3 text-[var(--brand-primary)]" />
+                <span>{evt.subject}</span>
+                <span className="text-[10px] opacity-75 font-mono">({evt.startTime})</span>
+              </button>
+            ))
+          ) : (
+            <span className="text-xs text-[var(--brand-ink-soft)] italic px-2">
+              {isLoadingCalendar ? 'Syncing Outlook/Teams calendar...' : 'No upcoming meetings scheduled for today.'}
+            </span>
+          )}
         </div>
 
         {/* Attendee Attribution & Active Speaker Pills */}
@@ -619,7 +609,7 @@ export default function GranolaNotepad({
             </button>
           ))}
 
-          {/* Quick Add Attendee input */}
+          {/* Add Attendee input */}
           <div className="flex items-center gap-1">
             <input
               type="text"
@@ -701,14 +691,14 @@ export default function GranolaNotepad({
             <textarea
               value={rawHumanNotes}
               onChange={(e) => handleNotesChange(e.target.value)}
-              placeholder="Type your meeting shorthand notes, bullets, decisions, or @mentions here during the call...&#10;&#10;Examples:&#10;- @Sarah: wants API response under 200ms&#10;- ! Decided to launch beta next Tuesday&#10;- [ ] Alex to finish database migration by Friday"
-              className="w-full h-full bg-transparent text-[var(--brand-ink)] text-base leading-relaxed placeholder-[var(--brand-ink-soft)]/50 focus:outline-none resize-none font-mono"
+              placeholder="Type your meeting shorthand notes, bullets, decisions, or @mentions here during the call...&#10;&#10;Examples:&#10;- @Attendee: key update or priority&#10;- ! Key decision agreed upon&#10;- [ ] Action item with assignee and deadline"
+              className="w-full h-full bg-transparent text-[var(--brand-ink)] text-base leading-relaxed placeholder-[var(--brand-ink-soft)]/40 focus:outline-none resize-none font-mono"
             />
           </div>
 
           {/* Notepad Footer Tips */}
           <div className="px-6 py-2 bg-[var(--bg-cream)] border-t border-[var(--border)] text-[11px] text-[var(--brand-ink-soft)] flex items-center justify-between font-medium">
-            <span>💡 <b>Minutes.Plus Tip:</b> Your shorthand bullets anchor the AI to synthesize what matters most.</span>
+            <span>💡 <b>Minutes.Plus Tip:</b> Shorthand bullets anchor the AI to synthesize what matters most.</span>
             <span className="font-mono text-[10px] font-bold text-[var(--brand-primary)]">Auto-saved to your device</span>
           </div>
         </div>
@@ -770,7 +760,8 @@ export default function GranolaNotepad({
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => copyToClipboard(enhancedSummary?.enhancedMarkdown || '', 'Enhanced Notes')}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-[var(--bg-surface)] hover:bg-[var(--bg-cream)] text-[var(--brand-primary)] border border-[var(--border)] text-[11px] font-bold shadow-sm transition-all"
+                    disabled={!enhancedSummary}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-[var(--bg-surface)] hover:bg-[var(--bg-cream)] text-[var(--brand-primary)] border border-[var(--border)] text-[11px] font-bold shadow-sm transition-all disabled:opacity-40"
                   >
                     <Copy className="w-3 h-3" />
                     <span>Copy Markdown</span>
@@ -778,7 +769,8 @@ export default function GranolaNotepad({
 
                   <button
                     onClick={() => handleSendChatMessage('Draft a professional follow-up email based on our meeting notes and decisions.')}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-[var(--bg-surface)] hover:bg-[var(--bg-cream)] text-[var(--brand-primary)] border border-[var(--border)] text-[11px] font-bold shadow-sm transition-all"
+                    disabled={!enhancedSummary}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-[var(--bg-surface)] hover:bg-[var(--bg-cream)] text-[var(--brand-primary)] border border-[var(--border)] text-[11px] font-bold shadow-sm transition-all disabled:opacity-40"
                   >
                     <Share2 className="w-3 h-3" />
                     <span>Email Draft</span>
@@ -876,8 +868,12 @@ export default function GranolaNotepad({
                     </div>
                   </>
                 ) : (
-                  <div className="text-center py-12 text-[var(--brand-ink-soft)] text-xs">
-                    Click "Enhance Notes" above to synthesize your shorthand notes with the transcript.
+                  <div className="flex flex-col items-center justify-center py-16 text-center text-[var(--brand-ink-soft)] text-xs">
+                    <Sparkles className="w-8 h-8 text-[var(--brand-primary)] opacity-40 mb-3" />
+                    <p className="font-bold text-sm text-[var(--brand-ink)]">No Enhanced Notes Yet</p>
+                    <p className="mt-1 max-w-xs text-xs">
+                      Type your shorthand notes or start audio recording, then click <b>"Enhance Notes"</b> above to generate structured outcomes.
+                    </p>
                   </div>
                 )}
               </div>
@@ -893,25 +889,35 @@ export default function GranolaNotepad({
               </div>
 
               <div className="flex-1 p-4 overflow-y-auto space-y-3">
-                {transcriptSegments.map((seg) => (
-                  <div key={seg.id} className="p-3 bg-[var(--bg-cream)] rounded-xl border border-[var(--border)] text-xs space-y-1 hover:border-[var(--brand-primary)]/40 transition-colors shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
-                          seg.speakerType === 'User' || seg.speakerName === displayName
-                            ? 'bg-[var(--brand-primary)] text-white'
-                            : 'bg-[#A8763A] text-white'
-                        }`}>
-                          {seg.speakerName}
-                        </span>
-                        <span className="text-[10px] font-mono text-[var(--brand-ink-soft)]">{seg.timestampFormatted}</span>
+                {transcriptSegments.length > 0 ? (
+                  transcriptSegments.map((seg) => (
+                    <div key={seg.id} className="p-3 bg-[var(--bg-cream)] rounded-xl border border-[var(--border)] text-xs space-y-1 hover:border-[var(--brand-primary)]/40 transition-colors shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
+                            seg.speakerType === 'User' || seg.speakerName === displayName
+                              ? 'bg-[var(--brand-primary)] text-white'
+                              : 'bg-[#A8763A] text-white'
+                          }`}>
+                            {seg.speakerName}
+                          </span>
+                          <span className="text-[10px] font-mono text-[var(--brand-ink-soft)]">{seg.timestampFormatted}</span>
+                        </div>
                       </div>
+                      <p className="text-[var(--brand-ink)] leading-relaxed pl-1">
+                        {seg.text}
+                      </p>
                     </div>
-                    <p className="text-[var(--brand-ink)] leading-relaxed pl-1">
-                      {seg.text}
+                  ))
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-16 text-center text-[var(--brand-ink-soft)] text-xs">
+                    <Mic className="w-8 h-8 text-[var(--brand-primary)] opacity-40 mb-3" />
+                    <p className="font-bold text-sm text-[var(--brand-ink)]">No Audio Recorded Yet</p>
+                    <p className="mt-1 max-w-xs text-xs">
+                      Click <b>"Record Mixed Audio"</b> in the top toolbar to capture your microphone and meeting tab audio in real-time.
                     </p>
                   </div>
-                ))}
+                )}
               </div>
             </div>
           )}
@@ -996,6 +1002,88 @@ export default function GranolaNotepad({
       </div>
 
       {/* ---------------------------------------------------- */}
+      {/* CALENDAR DIAGNOSTICS & DETAILS MODAL                 */}
+      {/* ---------------------------------------------------- */}
+      {showCalendarDetails && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[var(--bg-surface)] border border-[var(--border)] w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 bg-[var(--bg-cream)] border-b border-[var(--border)]">
+              <div className="flex items-center gap-2">
+                <CalendarCheck className="w-5 h-5 text-[var(--brand-primary)]" />
+                <h3 className="font-bold text-sm text-[var(--brand-primary)]">Microsoft 365 Calendar Connection</h3>
+              </div>
+              <button
+                onClick={() => setShowCalendarDetails(false)}
+                className="text-xs font-bold text-[var(--brand-ink-soft)] hover:text-[var(--brand-ink)] px-2 py-1 bg-white border border-[var(--border)] rounded"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs">
+              <div className="p-3 bg-[var(--bg-ice-blue)] rounded-xl border border-[var(--brand-primary)]/20 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[var(--brand-primary)]">Connection Status:</span>
+                  <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                    isCalendarConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {isCalendarConnected ? 'Active & Synced' : 'Action Needed'}
+                  </span>
+                </div>
+                <p className="text-[var(--brand-ink-soft)] leading-relaxed">
+                  {calendarStatusMessage}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <span className="font-bold text-[var(--brand-ink)]">Mailbox Details:</span>
+                <div className="bg-[var(--bg-cream)] p-3 rounded-lg border border-[var(--border)] font-mono text-[11px] space-y-1">
+                  <div>User Account: <b>{userEmail}</b></div>
+                  <div>Synced Events for Today: <b>{calendarEvents.length}</b></div>
+                  <div>Sync Provider: <b>Microsoft Graph API</b></div>
+                </div>
+              </div>
+
+              {calendarEvents.length > 0 && (
+                <div className="space-y-2">
+                  <span className="font-bold text-[var(--brand-ink)]">Today's Scheduled Events:</span>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {calendarEvents.map(evt => (
+                      <div
+                        key={evt.id}
+                        onClick={() => {
+                          associateCalendarEvent(evt);
+                          setShowCalendarDetails(false);
+                        }}
+                        className="p-2.5 bg-[var(--bg-cream)] hover:bg-[var(--bg-ice-blue)] rounded-lg border border-[var(--border)] cursor-pointer flex items-center justify-between transition-colors"
+                      >
+                        <div>
+                          <div className="font-bold text-[var(--brand-ink)]">{evt.subject}</div>
+                          <div className="text-[10px] text-[var(--brand-ink-soft)]">Organizer: {evt.organizer}</div>
+                        </div>
+                        <span className="font-mono text-[10px] font-bold text-[var(--brand-primary)]">{evt.startTime}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-3 bg-[var(--bg-cream)] border-t border-[var(--border)] flex justify-end gap-2">
+              <button
+                onClick={fetchCalendarData}
+                disabled={isLoadingCalendar}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-primary)] text-white rounded-lg text-xs font-bold hover:bg-[#07475F] transition-all"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingCalendar ? 'animate-spin' : ''}`} />
+                <span>Re-Sync Calendar</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
       {/* CROSS-MEETING SEMANTIC SEARCH MODAL (CMD+K)         */}
       {/* ---------------------------------------------------- */}
       {isSearchOpen && (
@@ -1056,21 +1144,25 @@ export default function GranolaNotepad({
               ) : (
                 <div className="space-y-2">
                   <span className="text-[11px] font-black text-[var(--brand-primary)] uppercase tracking-wider">Recent Workspace Meetings</span>
-                  {historicalMeetings.slice(0, 5).map((m) => (
-                    <div
-                      key={m.meetingId}
-                      onClick={() => {
-                        setSubject(m.subject);
-                        if (m.rawHumanNotes) setRawHumanNotes(m.rawHumanNotes);
-                        if (m.transcriptSegments) setTranscriptSegments(m.transcriptSegments);
-                        setIsSearchOpen(false);
-                      }}
-                      className="p-3 bg-[var(--bg-cream)] hover:bg-[var(--bg-ice-blue)] rounded-lg border border-[var(--border)] cursor-pointer text-xs flex items-center justify-between font-medium"
-                    >
-                      <span className="text-[var(--brand-ink)] font-bold">{m.subject}</span>
-                      <span className="text-[11px] text-[var(--brand-ink-soft)]">{m.templatePreset || 'General'}</span>
-                    </div>
-                  ))}
+                  {historicalMeetings.length > 0 ? (
+                    historicalMeetings.slice(0, 5).map((m) => (
+                      <div
+                        key={m.meetingId}
+                        onClick={() => {
+                          setSubject(m.subject);
+                          if (m.rawHumanNotes) setRawHumanNotes(m.rawHumanNotes);
+                          if (m.transcriptSegments) setTranscriptSegments(m.transcriptSegments);
+                          setIsSearchOpen(false);
+                        }}
+                        className="p-3 bg-[var(--bg-cream)] hover:bg-[var(--bg-ice-blue)] rounded-lg border border-[var(--border)] cursor-pointer text-xs flex items-center justify-between font-medium"
+                      >
+                        <span className="text-[var(--brand-ink)] font-bold">{m.subject}</span>
+                        <span className="text-[11px] text-[var(--brand-ink-soft)]">{m.templatePreset || 'General'}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-6 text-slate-400 text-xs">No saved meetings in history yet.</div>
+                  )}
                 </div>
               )}
             </div>

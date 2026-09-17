@@ -35,6 +35,40 @@ namespace TeamsBot.Server.Controllers
             public string Status { get; set; } = "UPCOMING"; // UPCOMING, IN_PROGRESS, COMPLETED
         }
 
+        [HttpGet("status")]
+        public async Task<IActionResult> GetCalendarStatus([FromQuery] string? email)
+        {
+            string userEmail = string.IsNullOrWhiteSpace(email) ? "ankith.ravindran@mailplus.com.au" : email.Trim().ToLowerInvariant();
+            string tenantId = _configuration["AZURE_TENANT_ID"] ?? _configuration["AzureAd:TenantId"] ?? "";
+            string clientId = _configuration["AZURE_CLIENT_ID"] ?? _configuration["AzureAd:ClientId"] ?? "";
+            string clientSecret = _configuration["AZURE_CLIENT_SECRET"] ?? _configuration["AzureAd:ClientSecret"] ?? "";
+
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+            {
+                return Ok(new
+                {
+                    connected = false,
+                    email = userEmail,
+                    provider = "Microsoft Graph API",
+                    message = "Azure Entra ID client credentials not configured in backend environment."
+                });
+            }
+
+            var meetings = await TryFetchGraphMeetingsAsync(userEmail);
+            bool isConnected = meetings != null;
+
+            return Ok(new
+            {
+                connected = isConnected,
+                email = userEmail,
+                provider = "Microsoft 365 Exchange Calendar",
+                meetingsCount = meetings?.Count ?? 0,
+                message = isConnected 
+                    ? $"Connected to Microsoft 365 Calendar for {userEmail} ({meetings?.Count ?? 0} events found)."
+                    : $"Could not authenticate with Microsoft Graph API for {userEmail}. Please verify mailbox permissions."
+            });
+        }
+
         [HttpGet("meetings")]
         public async Task<IActionResult> GetUserMeetings([FromQuery] string email)
         {
@@ -46,13 +80,12 @@ namespace TeamsBot.Server.Controllers
             var cleanEmail = email.Trim().ToLowerInvariant();
             var meetings = await TryFetchGraphMeetingsAsync(cleanEmail);
 
-            if (meetings != null && meetings.Count > 0)
+            if (meetings != null)
             {
-                return Ok(new { success = true, source = "graph_api", meetings });
+                return Ok(new { success = true, source = "graph_api", count = meetings.Count, meetings });
             }
 
-            // Return empty list if no Graph API meetings exist
-            return Ok(new { success = true, source = "graph_api", meetings = new List<UpcomingMeetingDto>() });
+            return Ok(new { success = false, source = "graph_api", count = 0, meetings = new List<UpcomingMeetingDto>() });
         }
 
         private async Task<List<UpcomingMeetingDto>?> TryFetchGraphMeetingsAsync(string email)
