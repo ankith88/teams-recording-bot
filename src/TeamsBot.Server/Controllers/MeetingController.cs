@@ -318,6 +318,110 @@ namespace TeamsBot.Server.Controllers
             return Ok(new { success = true, count = searchResults.Count, results = searchResults });
         }
 
+        [HttpPost("{id}/expand-notes")]
+        public async Task<IActionResult> ExpandMeetingNotes(string id, [FromBody] EnhanceNotesRequest? request)
+        {
+            _meetings.TryGetValue(id, out var meeting);
+            string subject = request?.MeetingSubject ?? meeting?.Subject ?? "Meeting Notes";
+            string rawNotes = request?.RawHumanNotes ?? meeting?.Notes?.RawHumanNotes ?? "";
+            string template = request?.TemplatePreset ?? meeting?.TemplatePreset ?? "General";
+            var segments = request?.TranscriptSegments ?? meeting?.TranscriptSegments ?? new List<TranscriptSegment>();
+
+            var expanded = await _aiSummaryService.ExpandNotesAsync(subject, rawNotes, segments, template);
+            return Ok(new { success = true, meetingId = id, expandedNotes = expanded });
+        }
+
+        [HttpPost("expand-notes")]
+        public async Task<IActionResult> ExpandNotesDirect([FromBody] EnhanceNotesRequest request)
+        {
+            string subject = string.IsNullOrWhiteSpace(request.MeetingSubject) ? "Meeting Notes" : request.MeetingSubject;
+            string rawNotes = request.RawHumanNotes ?? "";
+            string template = string.IsNullOrWhiteSpace(request.TemplatePreset) ? "General" : request.TemplatePreset;
+            var segments = request.TranscriptSegments ?? new List<TranscriptSegment>();
+
+            var expanded = await _aiSummaryService.ExpandNotesAsync(subject, rawNotes, segments, template);
+            return Ok(new { success = true, expandedNotes = expanded });
+        }
+
+        [HttpPost("{id}/live-signals")]
+        public async Task<IActionResult> GetLiveSignals(string id, [FromBody] List<TranscriptSegment>? recentSegments)
+        {
+            _meetings.TryGetValue(id, out var meeting);
+            var segments = recentSegments ?? meeting?.TranscriptSegments ?? new List<TranscriptSegment>();
+
+            var signals = await _aiSummaryService.ExtractLiveSignalsAsync(segments, meeting?.Subject ?? "");
+            return Ok(new { success = true, meetingId = id, signals });
+        }
+
+        [HttpPost("live-signals")]
+        public async Task<IActionResult> GetLiveSignalsDirect([FromBody] List<TranscriptSegment> recentSegments)
+        {
+            var signals = await _aiSummaryService.ExtractLiveSignalsAsync(recentSegments ?? new List<TranscriptSegment>(), "Live Call");
+            return Ok(new { success = true, signals });
+        }
+
+        [HttpPost("{id}/tags")]
+        public IActionResult UpdateMeetingTags(string id, [FromBody] List<string> tags)
+        {
+            if (_meetings.TryGetValue(id, out var meeting))
+            {
+                meeting.Tags = tags ?? new List<string>();
+                PersistMeetingsToDisk();
+                return Ok(new { success = true, meetingId = id, tags = meeting.Tags });
+            }
+            return NotFound(new { success = false, message = "Meeting not found." });
+        }
+
+        private static readonly ConcurrentDictionary<string, CustomTemplateDto> _customTemplates = new();
+        private static readonly string TemplatesStorageFilePath = Path.Combine(AppContext.BaseDirectory, "granola_custom_templates.json");
+
+        [HttpGet("/api/templates")]
+        public IActionResult GetTemplates()
+        {
+            return Ok(new { success = true, templates = _customTemplates.Values.ToList() });
+        }
+
+        [HttpPost("/api/templates")]
+        public IActionResult SaveTemplate([FromBody] CustomTemplateDto template)
+        {
+            if (string.IsNullOrWhiteSpace(template.Label))
+            {
+                return BadRequest(new { success = false, message = "Template label cannot be empty." });
+            }
+
+            string id = string.IsNullOrWhiteSpace(template.Id) ? "tmpl-" + Guid.NewGuid().ToString("N").Substring(0, 8) : template.Id;
+            template.Id = id;
+            template.IsCustom = true;
+            template.CreatedAt = DateTime.UtcNow;
+
+            _customTemplates[id] = template;
+            PersistTemplatesToDisk();
+
+            return Ok(new { success = true, template });
+        }
+
+        [HttpDelete("/api/templates/{id}")]
+        public IActionResult DeleteTemplate(string id)
+        {
+            bool removed = _customTemplates.TryRemove(id, out _);
+            if (removed)
+            {
+                PersistTemplatesToDisk();
+                return Ok(new { success = true, message = "Template deleted." });
+            }
+            return NotFound(new { success = false, message = "Template not found." });
+        }
+
+        private static void PersistTemplatesToDisk()
+        {
+            try
+            {
+                var json = JsonSerializer.Serialize(_customTemplates.Values, new JsonSerializerOptions { WriteIndented = true });
+                System.IO.File.WriteAllText(TemplatesStorageFilePath, json);
+            }
+            catch {}
+        }
+
         [HttpDelete("{id}")]
         public IActionResult DeleteMeeting(string id)
         {

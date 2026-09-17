@@ -99,8 +99,39 @@ namespace TeamsBot.Core.Models
         public MeetingNotes Notes { get; set; } = new();
         public List<MeetingChatMessage> ChatMessages { get; set; } = new();
 
+        public List<string> Tags { get; set; } = new();
         public string RawAudioPath { get; set; } = string.Empty;
         public string ErrorMessage { get; set; } = string.Empty;
+    }
+
+    public class LiveSignalDto
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        public string Type { get; set; } = "ACTION"; // "ACTION" | "DECISION" | "QUESTION"
+        public string Text { get; set; } = string.Empty;
+        public string Speaker { get; set; } = "Participant";
+        public string TimestampFormatted { get; set; } = "00:00:00";
+        public double Confidence { get; set; } = 0.9;
+        public bool IsResolved { get; set; } = false;
+    }
+
+    public class MeetingAgendaItemDto
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        public string Title { get; set; } = string.Empty;
+        public string Status { get; set; } = "PENDING"; // "PENDING" | "IN_PROGRESS" | "COVERED"
+        public int EstimatedMinutes { get; set; } = 5;
+    }
+
+    public class CustomTemplateDto
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        public string Label { get; set; } = string.Empty;
+        public string Desc { get; set; } = string.Empty;
+        public string SystemPrompt { get; set; } = string.Empty;
+        public List<string> RequiredSections { get; set; } = new();
+        public bool IsCustom { get; set; } = true;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 
     public class SemanticSearchResult
@@ -111,5 +142,6 @@ namespace TeamsBot.Core.Models
         public double RelevanceScore { get; set; }
         public string MatchedSnippet { get; set; } = string.Empty;
         public string MatchSource { get; set; } = string.Empty; // "Notes" | "Transcript" | "Decisions" | "ActionItems"
+        public List<string> Tags { get; set; } = new();
     }
 }

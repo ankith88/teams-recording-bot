@@ -33,6 +33,8 @@ namespace TeamsBot.Server.Services
         Task<AiSummaryDataDto> EnhanceNotesAsync(string meetingSubject, string rawHumanNotes, List<TranscriptSegment> transcriptSegments, string templatePreset, List<string> attendees);
         Task<string> ChatWithMeetingAsync(string meetingSubject, string userPrompt, string rawNotes, string transcriptText, string enhancedNotes, List<MeetingChatMessage> history);
         Task<List<SemanticSearchResult>> SemanticSearchAsync(string query, List<MeetingSession> meetings);
+        Task<string> ExpandNotesAsync(string meetingSubject, string rawHumanNotes, List<TranscriptSegment> transcriptSegments, string templatePreset);
+        Task<List<LiveSignalDto>> ExtractLiveSignalsAsync(List<TranscriptSegment> recentSegments, string currentTopic);
     }
 
     public class AiSummaryService : IAiSummaryService
@@ -612,6 +614,128 @@ namespace TeamsBot.Server.Services
 
             results = results.OrderByDescending(r => r.RelevanceScore).Take(15).ToList();
             return Task.FromResult(results);
+        }
+
+        public Task<string> ExpandNotesAsync(string meetingSubject, string rawHumanNotes, List<TranscriptSegment> transcriptSegments, string templatePreset)
+        {
+            if (string.IsNullOrWhiteSpace(rawHumanNotes) && (transcriptSegments == null || transcriptSegments.Count == 0))
+            {
+                return Task.FromResult("• Meeting recorded with no specific notes taken.");
+            }
+
+            var lines = (rawHumanNotes ?? "")
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(l => l.Trim())
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .ToList();
+
+            var transcriptAll = transcriptSegments != null
+                ? string.Join(" ", transcriptSegments.Select(s => s.Text))
+                : string.Empty;
+
+            var sb = new StringBuilder();
+
+            if (lines.Count == 0)
+            {
+                // If user wrote no notes, create smart starter bullets based on transcript segments
+                sb.AppendLine("## Key Notes & Discussion Points");
+                if (transcriptSegments != null && transcriptSegments.Count > 0)
+                {
+                    foreach (var seg in transcriptSegments.Take(8))
+                    {
+                        sb.AppendLine($"- **{seg.SpeakerName}** [{seg.TimestampFormatted}]: {seg.Text}");
+                    }
+                }
+                return Task.FromResult(sb.ToString().Trim());
+            }
+
+            foreach (var line in lines)
+            {
+                var cleanLine = line.TrimStart('-', '*', '•', ' ').Trim();
+                if (string.IsNullOrWhiteSpace(cleanLine)) continue;
+
+                // Find if there are transcript segments that mention keywords from this line
+                var words = cleanLine.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Where(w => w.Length > 3)
+                    .Select(w => w.ToLowerInvariant())
+                    .ToList();
+
+                var matchingSegments = (transcriptSegments ?? new List<TranscriptSegment>())
+                    .Where(seg => words.Any(w => seg.Text.ToLowerInvariant().Contains(w)))
+                    .Take(2)
+                    .ToList();
+
+                if (matchingSegments.Count > 0)
+                {
+                    var seg = matchingSegments.First();
+                    sb.AppendLine($"- **{cleanLine}**");
+                    sb.AppendLine($"  - *Context ({seg.SpeakerName} at {seg.TimestampFormatted})*: \"{seg.Text}\"");
+                }
+                else
+                {
+                    sb.AppendLine($"- **{cleanLine}**");
+                }
+            }
+
+            return Task.FromResult(sb.ToString().Trim());
+        }
+
+        public Task<List<LiveSignalDto>> ExtractLiveSignalsAsync(List<TranscriptSegment> recentSegments, string currentTopic)
+        {
+            var signals = new List<LiveSignalDto>();
+            if (recentSegments == null || recentSegments.Count == 0) return Task.FromResult(signals);
+
+            var actionKeywords = new[] { "i will", "i'll", "will send", "let me", "let's prepare", "action on", "follow up with", "need to finish", "assigned to", "deliver by" };
+            var decisionKeywords = new[] { "agreed", "decided", "decision is", "we decided", "let's go with", "approved", "confirmed that", "consensus is", "moving forward with" };
+            var questionKeywords = new[] { "?", "how will", "what is", "when can", "who is", "can we", "is there any", "do we need" };
+
+            foreach (var seg in recentSegments)
+            {
+                var lower = seg.Text.ToLowerInvariant();
+
+                // 1. Action Items
+                if (actionKeywords.Any(k => lower.Contains(k)))
+                {
+                    signals.Add(new LiveSignalDto
+                    {
+                        Id = "sig-act-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        Type = "ACTION",
+                        Speaker = seg.SpeakerName,
+                        TimestampFormatted = seg.TimestampFormatted,
+                        Text = seg.Text,
+                        Confidence = 0.92
+                    });
+                }
+                // 2. Decisions
+                else if (decisionKeywords.Any(k => lower.Contains(k)))
+                {
+                    signals.Add(new LiveSignalDto
+                    {
+                        Id = "sig-dec-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        Type = "DECISION",
+                        Speaker = seg.SpeakerName,
+                        TimestampFormatted = seg.TimestampFormatted,
+                        Text = seg.Text,
+                        Confidence = 0.95
+                    });
+                }
+                // 3. Questions
+                else if (questionKeywords.Any(k => lower.Contains(k)))
+                {
+                    signals.Add(new LiveSignalDto
+                    {
+                        Id = "sig-q-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        Type = "QUESTION",
+                        Speaker = seg.SpeakerName,
+                        TimestampFormatted = seg.TimestampFormatted,
+                        Text = seg.Text,
+                        Confidence = 0.88,
+                        IsResolved = false
+                    });
+                }
+            }
+
+            return Task.FromResult(signals);
         }
 
         private static List<TranscriptSegment> ParseTranscriptToSegments(string transcriptText)

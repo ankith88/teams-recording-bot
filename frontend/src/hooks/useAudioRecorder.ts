@@ -10,6 +10,8 @@ export interface TranscriptSegment {
   confidence: number;
 }
 
+export type RecordingMode = 'TEAMS_SYSTEM' | 'MIC_ONLY';
+
 export interface AudioRecorderState {
   isRecording: boolean;
   isPaused: boolean;
@@ -19,6 +21,7 @@ export interface AudioRecorderState {
   hasMicPermission: boolean;
   hasSystemAudio: boolean;
   activeSpeaker: string;
+  recordingMode: RecordingMode;
 }
 
 export function useAudioRecorder(onTranscriptSegment?: (segment: TranscriptSegment) => void) {
@@ -30,6 +33,15 @@ export function useAudioRecorder(onTranscriptSegment?: (segment: TranscriptSegme
   const [hasMicPermission, setHasMicPermission] = useState(false);
   const [hasSystemAudio, setHasSystemAudio] = useState(false);
   const [activeSpeaker, setActiveSpeaker] = useState<string>('Participant');
+  const [recordingMode, setRecordingMode] = useState<RecordingMode>('TEAMS_SYSTEM');
+
+  // Recorded Audio Output & Playback State
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioBlobUrl, setAudioBlobUrl] = useState<string | null>(null);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [playbackCurrentTime, setPlaybackCurrentTime] = useState(0);
+  const [playbackDuration, setPlaybackDuration] = useState(0);
+  const [playbackRate, setPlaybackRateState] = useState(1.0);
 
   const timerRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -38,14 +50,58 @@ export function useAudioRecorder(onTranscriptSegment?: (segment: TranscriptSegme
   const userAnalyserRef = useRef<AnalyserNode | null>(null);
   const participantAnalyserRef = useRef<AnalyserNode | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
   const animFrameRef = useRef<number | null>(null);
   const recognitionRef = useRef<any>(null);
   const activeSpeakerRef = useRef<string>('Participant');
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
 
   // Keep ref synchronized with state
   useEffect(() => {
     activeSpeakerRef.current = activeSpeaker;
   }, [activeSpeaker]);
+
+  // Clean up Audio element on unmount
+  useEffect(() => {
+    const audioEl = new Audio();
+    audioElementRef.current = audioEl;
+
+    const handleTimeUpdate = () => {
+      setPlaybackCurrentTime(audioEl.currentTime);
+    };
+    const handleLoadedMetadata = () => {
+      setPlaybackDuration(audioEl.duration || 0);
+    };
+    const handleEnded = () => {
+      setIsPlayingAudio(false);
+      setPlaybackCurrentTime(0);
+    };
+    const handlePlay = () => setIsPlayingAudio(true);
+    const handlePause = () => setIsPlayingAudio(false);
+
+    audioEl.addEventListener('timeupdate', handleTimeUpdate);
+    audioEl.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audioEl.addEventListener('ended', handleEnded);
+    audioEl.addEventListener('play', handlePlay);
+    audioEl.addEventListener('pause', handlePause);
+
+    return () => {
+      audioEl.pause();
+      audioEl.removeEventListener('timeupdate', handleTimeUpdate);
+      audioEl.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audioEl.removeEventListener('ended', handleEnded);
+      audioEl.removeEventListener('play', handlePlay);
+      audioEl.removeEventListener('pause', handlePause);
+    };
+  }, []);
+
+  // Update audio element src when blob url changes
+  useEffect(() => {
+    if (audioElementRef.current && audioBlobUrl) {
+      audioElementRef.current.src = audioBlobUrl;
+      audioElementRef.current.load();
+    }
+  }, [audioBlobUrl]);
 
   // Audio level polling for visualizer
   const updateAudioLevels = useCallback(() => {
@@ -103,9 +159,18 @@ export function useAudioRecorder(onTranscriptSegment?: (segment: TranscriptSegme
     };
   }, [isRecording, isPaused]);
 
-  // Start Dual-Channel Audio Capture
-  const startRecording = async (options?: { includeSystemAudio?: boolean; defaultSpeaker?: string; userDisplayName?: string }) => {
+  // Start Dual-Channel or Mic-Only Audio Capture
+  const startRecording = async (options?: { 
+    mode?: RecordingMode;
+    includeSystemAudio?: boolean; 
+    defaultSpeaker?: string; 
+    userDisplayName?: string 
+  }) => {
     try {
+      const currentMode = options?.mode || recordingMode;
+      setRecordingMode(currentMode);
+      recordedChunksRef.current = [];
+
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       audioContextRef.current = audioCtx;
       if (audioCtx.state === 'suspended') {
@@ -129,11 +194,11 @@ export function useAudioRecorder(onTranscriptSegment?: (segment: TranscriptSegme
       micSource.connect(userAnalyser);
       userAnalyserRef.current = userAnalyser;
 
-      // 2. System / Tab audio capture (Meeting Participants)
+      // 2. System / Tab audio capture (Meeting Participants) - Only in TEAMS_SYSTEM mode
       let mixedDestination = audioCtx.createMediaStreamDestination();
       micSource.connect(mixedDestination);
 
-      if (options?.includeSystemAudio !== false) {
+      if (currentMode === 'TEAMS_SYSTEM' && options?.includeSystemAudio !== false) {
         try {
           const sysStream = await navigator.mediaDevices.getDisplayMedia({
             video: true,
@@ -163,14 +228,27 @@ export function useAudioRecorder(onTranscriptSegment?: (segment: TranscriptSegme
           console.log('[useAudioRecorder] System audio prompt bypassed or dismissed:', sysErr);
           setHasSystemAudio(false);
         }
+      } else {
+        setHasSystemAudio(false);
       }
 
       // 3. MediaRecorder for mixed audio
-      const mediaRecorder = new MediaRecorder(mixedDestination.stream, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : undefined
-      });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : '';
+
+      const mediaRecorder = new MediaRecorder(mixedDestination.stream, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start(1000); // 1-second chunks
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          recordedChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.start(1000); // 1-second slices
 
       // 4. Initialize Web Speech Recognition for live transcription stream
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -180,10 +258,7 @@ export function useAudioRecorder(onTranscriptSegment?: (segment: TranscriptSegme
         recognition.interimResults = true;
         recognition.lang = 'en-US';
 
-        let currentSentence = '';
-
         recognition.onresult = (event: any) => {
-          let interim = '';
           for (let i = event.resultIndex; i < event.results.length; ++i) {
             if (event.results[i].isFinal) {
               const text = event.results[i][0].transcript.trim();
@@ -193,7 +268,7 @@ export function useAudioRecorder(onTranscriptSegment?: (segment: TranscriptSegme
                 const mins = Math.floor((nowSec % 3600) / 60).toString().padStart(2, '0');
                 const secs = (nowSec % 60).toString().padStart(2, '0');
 
-                const isUserVoice = userVolume > 0.08 && participantVolume < 0.05;
+                const isUserVoice = currentMode === 'MIC_ONLY' || (userVolume > 0.08 && participantVolume < 0.05);
                 const speakerName = isUserVoice ? (options?.userDisplayName || 'You') : activeSpeakerRef.current;
                 const speakerType = isUserVoice ? 'User' : 'Participant';
 
@@ -206,8 +281,6 @@ export function useAudioRecorder(onTranscriptSegment?: (segment: TranscriptSegme
                   confidence: event.results[i][0].confidence || 0.95
                 });
               }
-            } else {
-              interim += event.results[i][0].transcript;
             }
           }
         };
@@ -291,6 +364,18 @@ export function useAudioRecorder(onTranscriptSegment?: (segment: TranscriptSegme
       mediaRecorderRef.current = null;
     }
 
+    // Assemble final audio blob
+    setTimeout(() => {
+      if (recordedChunksRef.current.length > 0) {
+        const type = recordedChunksRef.current[0].type || 'audio/webm';
+        const blob = new Blob(recordedChunksRef.current, { type });
+        setAudioBlob(blob);
+        const url = URL.createObjectURL(blob);
+        setAudioBlobUrl(url);
+        setPlaybackDuration(durationSeconds);
+      }
+    }, 200);
+
     if (micStreamRef.current) {
       micStreamRef.current.getTracks().forEach(t => t.stop());
       micStreamRef.current = null;
@@ -311,6 +396,45 @@ export function useAudioRecorder(onTranscriptSegment?: (segment: TranscriptSegme
     setHasSystemAudio(false);
   };
 
+  // Synchronized Audio Playback Handlers
+  const playAudio = () => {
+    if (audioElementRef.current && audioBlobUrl) {
+      audioElementRef.current.play().catch(e => console.warn('Audio play notice:', e));
+    }
+  };
+
+  const pauseAudio = () => {
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+    }
+  };
+
+  const seekTo = (seconds: number) => {
+    if (audioElementRef.current && audioBlobUrl) {
+      audioElementRef.current.currentTime = Math.max(0, Math.min(seconds, audioElementRef.current.duration || 99999));
+      if (!isPlayingAudio) {
+        audioElementRef.current.play().catch(() => {});
+      }
+    }
+  };
+
+  const setPlaybackRate = (rate: number) => {
+    setPlaybackRateState(rate);
+    if (audioElementRef.current) {
+      audioElementRef.current.playbackRate = rate;
+    }
+  };
+
+  const downloadAudio = (filename: string = 'meeting-recording.webm') => {
+    if (!audioBlob) return;
+    const a = document.createElement('a');
+    a.href = audioBlobUrl || URL.createObjectURL(audioBlob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   return {
     isRecording,
     isPaused,
@@ -321,9 +445,23 @@ export function useAudioRecorder(onTranscriptSegment?: (segment: TranscriptSegme
     hasSystemAudio,
     activeSpeaker,
     setActiveSpeaker,
+    recordingMode,
+    setRecordingMode,
     startRecording,
     pauseRecording,
     resumeRecording,
-    stopRecording
+    stopRecording,
+    // Playback state and actions
+    audioBlob,
+    audioBlobUrl,
+    isPlayingAudio,
+    playbackCurrentTime,
+    playbackDuration,
+    playbackRate,
+    playAudio,
+    pauseAudio,
+    seekTo,
+    setPlaybackRate,
+    downloadAudio
   };
 }
