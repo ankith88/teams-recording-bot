@@ -18,5 +18,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\TeamsBot.Core\TeamsBot.Core.csproj" />
     <ProjectReference Include="..\..\src\TeamsBot.Storage\TeamsBot.Storage.csproj" />
+    <ProjectReference Include="..\..\src\TeamsBot.Server\TeamsBot.Server.csproj" />
   </ItemGroup>
 </Project>
