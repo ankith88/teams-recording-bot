@@ -5,12 +5,31 @@ import TeamsRecorderTab from '../TeamsRecorderTab';
 import '../index.css';
 import { Mic, Layers, ShieldCheck, User } from 'lucide-react';
 
+export const getApiBaseUrl = (): string => {
+  if (typeof window !== 'undefined') {
+    // 1. Explicit Vite env variable
+    if ((import.meta as any).env?.VITE_API_BASE_URL) {
+      return (import.meta as any).env.VITE_API_BASE_URL;
+    }
+    // 2. Localhost development
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://localhost:5001';
+    }
+    // 3. Vercel deployment without custom domain
+    if (window.location.hostname.includes('vercel.app')) {
+      return 'https://teamsbot.prospectplus.com.au';
+    }
+    return window.location.origin;
+  }
+  return 'https://teamsbot.prospectplus.com.au';
+};
+
 function App() {
   const [viewMode, setViewMode] = useState<'NOTEPAD' | 'CLASSIC'>('NOTEPAD');
   const [userEmail, setUserEmail] = useState<string>('ankith.ravindran@mailplus.com.au');
   const [displayName, setDisplayName] = useState<string>('Ankith Ravindran');
 
-  const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5001';
+  const apiBaseUrl = getApiBaseUrl();
 
   return (
     <div className="min-h-screen bg-[var(--bg-app-logged-in)] text-[var(--brand-ink)] flex flex-col font-sans">

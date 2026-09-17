@@ -195,20 +195,43 @@ export default function GranolaNotepad({
     fetchHistoricalMeetings();
   }, [userEmail]);
 
+  // Safe JSON fetcher that guards against non-JSON / HTML 404 responses
+  const safeFetchJson = async (url: string, options?: RequestInit) => {
+    try {
+      const res = await fetch(url, options);
+      const contentType = res.headers.get('content-type') || '';
+      if (!res.ok || !contentType.includes('application/json')) {
+        const text = await res.text();
+        return { ok: false, status: res.status, errorText: text };
+      }
+      const data = await res.json();
+      return { ok: true, data };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || 'Network fetch error' };
+    }
+  };
+
   const fetchCalendarData = async () => {
     setIsLoadingCalendar(true);
     try {
       // 1. Check Status
-      const statusRes = await fetch(`${apiBaseUrl}/api/calendar/status?email=${encodeURIComponent(userEmail)}`);
-      const statusData = await statusRes.json();
-      setIsCalendarConnected(Boolean(statusData?.connected));
-      setCalendarStatusMessage(statusData?.message || 'Calendar status verified.');
+      const statusResult = await safeFetchJson(`${apiBaseUrl}/api/calendar/status?email=${encodeURIComponent(userEmail)}`);
+      if (statusResult.ok && statusResult.data) {
+        setIsCalendarConnected(Boolean(statusResult.data.connected));
+        setCalendarStatusMessage(statusResult.data.message || 'Calendar connection verified.');
+      } else {
+        setIsCalendarConnected(false);
+        setCalendarStatusMessage(
+          statusResult.status === 404 
+            ? `Backend endpoint not found on ${apiBaseUrl}. Ensure backend server is running and deployed.`
+            : `Could not reach Microsoft 365 calendar service at ${apiBaseUrl}.`
+        );
+      }
 
       // 2. Fetch Events
-      const meetingsRes = await fetch(`${apiBaseUrl}/api/calendar/meetings?email=${encodeURIComponent(userEmail)}`);
-      const meetingsData = await meetingsRes.json();
-      if (meetingsData?.meetings && Array.isArray(meetingsData.meetings)) {
-        setCalendarEvents(meetingsData.meetings);
+      const meetingsResult = await safeFetchJson(`${apiBaseUrl}/api/calendar/meetings?email=${encodeURIComponent(userEmail)}`);
+      if (meetingsResult.ok && meetingsResult.data?.meetings && Array.isArray(meetingsResult.data.meetings)) {
+        setCalendarEvents(meetingsResult.data.meetings);
       } else {
         setCalendarEvents([]);
       }
@@ -224,10 +247,9 @@ export default function GranolaNotepad({
 
   const fetchHistoricalMeetings = async () => {
     try {
-      const res = await fetch(`${apiBaseUrl}/api/meetings?userEmail=${encodeURIComponent(userEmail)}`);
-      const data = await res.json();
-      if (data?.meetings) {
-        setHistoricalMeetings(data.meetings);
+      const result = await safeFetchJson(`${apiBaseUrl}/api/meetings?userEmail=${encodeURIComponent(userEmail)}`);
+      if (result.ok && result.data?.meetings) {
+        setHistoricalMeetings(result.data.meetings);
       }
     } catch (e) {
       console.warn('Historical meetings fetch notice:', e);
@@ -269,7 +291,7 @@ export default function GranolaNotepad({
     setIsEnhancing(true);
     setActiveRightTab('ENHANCED');
     try {
-      const res = await fetch(`${apiBaseUrl}/api/meetings/${meetingId}/enhance`, {
+      const res = await safeFetchJson(`${apiBaseUrl}/api/meetings/${meetingId}/enhance`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -281,9 +303,8 @@ export default function GranolaNotepad({
         })
       });
 
-      const data = await res.json();
-      if (data?.enhancedSummary) {
-        setEnhancedSummary(data.enhancedSummary);
+      if (res.ok && res.data?.enhancedSummary) {
+        setEnhancedSummary(res.data.enhancedSummary);
         showToast('✨ Notes synthesized with transcript context!');
       } else {
         showToast('Notice: Enhancement completed.');
@@ -312,16 +333,15 @@ export default function GranolaNotepad({
     setIsChatSending(true);
 
     try {
-      const res = await fetch(`${apiBaseUrl}/api/meetings/${meetingId}/chat`, {
+      const res = await safeFetchJson(`${apiBaseUrl}/api/meetings/${meetingId}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: textToSend })
       });
 
-      const data = await res.json();
       const assistantMsg = {
         role: 'assistant' as const,
-        content: data?.response || `Response generated for "${textToSend}".`,
+        content: res.ok && res.data?.response ? res.data.response : `Response generated for "${textToSend}".`,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       setChatMessages(prev => [...prev, assistantMsg]);
@@ -348,7 +368,7 @@ export default function GranolaNotepad({
     }
     setIsSearching(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/api/meetings/search`, {
+      const res = await safeFetchJson(`${apiBaseUrl}/api/meetings/search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -356,8 +376,7 @@ export default function GranolaNotepad({
           userEmail
         })
       });
-      const data = await res.json();
-      setSearchResults(data?.results || []);
+      setSearchResults(res.ok && res.data?.results ? res.data.results : []);
     } catch (e) {
       console.warn('Search error:', e);
     } finally {
