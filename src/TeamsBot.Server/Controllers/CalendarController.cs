@@ -54,7 +54,7 @@ namespace TeamsBot.Server.Controllers
                 });
             }
 
-            var meetings = await TryFetchGraphMeetingsAsync(userEmail);
+            var (meetings, debugMsg) = await TryFetchGraphMeetingsAsync(userEmail);
             bool isConnected = meetings != null;
 
             return Ok(new
@@ -65,7 +65,8 @@ namespace TeamsBot.Server.Controllers
                 meetingsCount = meetings?.Count ?? 0,
                 message = isConnected 
                     ? $"Connected to Microsoft 365 Calendar for {userEmail} ({meetings?.Count ?? 0} events found)."
-                    : $"Could not authenticate with Microsoft Graph API for {userEmail}. Please verify mailbox permissions."
+                    : $"Could not authenticate with Microsoft Graph API for {userEmail}: {debugMsg}",
+                debug = debugMsg
             });
         }
 
@@ -78,17 +79,17 @@ namespace TeamsBot.Server.Controllers
             }
 
             var cleanEmail = email.Trim().ToLowerInvariant();
-            var meetings = await TryFetchGraphMeetingsAsync(cleanEmail);
+            var (meetings, debugMsg) = await TryFetchGraphMeetingsAsync(cleanEmail);
 
             if (meetings != null)
             {
-                return Ok(new { success = true, source = "graph_api", count = meetings.Count, meetings });
+                return Ok(new { success = true, source = "graph_api", count = meetings.Count, meetings, debug = debugMsg });
             }
 
-            return Ok(new { success = false, source = "graph_api", count = 0, meetings = new List<UpcomingMeetingDto>() });
+            return Ok(new { success = false, source = "graph_api", count = 0, meetings = new List<UpcomingMeetingDto>(), debug = debugMsg });
         }
 
-        private async Task<List<UpcomingMeetingDto>?> TryFetchGraphMeetingsAsync(string email)
+        private async Task<(List<UpcomingMeetingDto>? meetings, string debug)> TryFetchGraphMeetingsAsync(string email)
         {
             string tenantId = _configuration["AZURE_TENANT_ID"] ?? _configuration["AzureAd:TenantId"] ?? "";
             string clientId = _configuration["AZURE_CLIENT_ID"] ?? _configuration["AzureAd:ClientId"] ?? "";
@@ -96,7 +97,7 @@ namespace TeamsBot.Server.Controllers
 
             if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             {
-                return null;
+                return (null, "Missing AZURE_TENANT_ID, AZURE_CLIENT_ID, or AZURE_CLIENT_SECRET");
             }
 
             try
@@ -115,7 +116,7 @@ namespace TeamsBot.Server.Controllers
                 {
                     string errStr = await tokenResponse.Content.ReadAsStringAsync();
                     Console.WriteLine($"[CalendarController] Token request failed ({tokenResponse.StatusCode}): {errStr}");
-                    return null;
+                    return (null, $"Token request failed ({tokenResponse.StatusCode}): {errStr}");
                 }
 
                 var tokenJson = await tokenResponse.Content.ReadAsStringAsync();
@@ -130,20 +131,23 @@ namespace TeamsBot.Server.Controllers
 
                 var request = new HttpRequestMessage(HttpMethod.Get, calendarUrl);
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-                request.Headers.Add("Prefer", "outlook.timezone=\"AUS Eastern Standard Time\"");
+                request.Headers.TryAddWithoutValidation("Prefer", "outlook.timezone=\"AUS Eastern Standard Time\"");
 
                 var response = await _httpClient.SendAsync(request);
                 if (!response.IsSuccessStatusCode)
                 {
                     string errStr = await response.Content.ReadAsStringAsync();
                     Console.WriteLine($"[CalendarController] Calendar API failed ({response.StatusCode}): {errStr}");
-                    return null;
+                    return (null, $"Calendar API failed ({response.StatusCode}): {errStr}");
                 }
 
                 var responseJson = await response.Content.ReadAsStringAsync();
                 using var resDoc = JsonDocument.Parse(responseJson);
 
-                if (!resDoc.RootElement.TryGetProperty("value", out var eventsArray)) return null;
+                if (!resDoc.RootElement.TryGetProperty("value", out var eventsArray)) 
+                {
+                    return (new List<UpcomingMeetingDto>(), "No 'value' array in Graph response");
+                }
 
                 var resultList = new List<UpcomingMeetingDto>();
                 int idCounter = 1;
@@ -158,7 +162,10 @@ namespace TeamsBot.Server.Controllers
                     DateTime startDt = now;
                     DateTime endDt = now.AddHours(1);
 
-                    if (evt.TryGetProperty("start", out var startObj) && startObj.TryGetProperty("dateTime", out var startDtProp))
+                    if (evt.TryGetProperty("start", out var startObj) && 
+                        startObj.ValueKind == JsonValueKind.Object && 
+                        startObj.TryGetProperty("dateTime", out var startDtProp) &&
+                        startDtProp.ValueKind == JsonValueKind.String)
                     {
                         if (DateTime.TryParse(startDtProp.GetString(), out startDt))
                         {
@@ -166,7 +173,10 @@ namespace TeamsBot.Server.Controllers
                         }
                     }
 
-                    if (evt.TryGetProperty("end", out var endObj) && endObj.TryGetProperty("dateTime", out var endDtProp))
+                    if (evt.TryGetProperty("end", out var endObj) && 
+                        endObj.ValueKind == JsonValueKind.Object && 
+                        endObj.TryGetProperty("dateTime", out var endDtProp) &&
+                        endDtProp.ValueKind == JsonValueKind.String)
                     {
                         if (DateTime.TryParse(endDtProp.GetString(), out endDt))
                         {
@@ -176,19 +186,26 @@ namespace TeamsBot.Server.Controllers
 
                     string organizer = "MailPlus Team";
                     if (evt.TryGetProperty("organizer", out var orgObj) && 
-                        orgObj.TryGetProperty("emailAddress", out var emailObj))
+                        orgObj.ValueKind == JsonValueKind.Object &&
+                        orgObj.TryGetProperty("emailAddress", out var emailObj) &&
+                        emailObj.ValueKind == JsonValueKind.Object)
                     {
-                        string name = emailObj.TryGetProperty("name", out var nProp) ? nProp.GetString() ?? "" : "";
-                        string addr = emailObj.TryGetProperty("address", out var aProp) ? aProp.GetString() ?? "" : "";
+                        string name = emailObj.TryGetProperty("name", out var nProp) && nProp.ValueKind == JsonValueKind.String ? nProp.GetString() ?? "" : "";
+                        string addr = emailObj.TryGetProperty("address", out var aProp) && aProp.ValueKind == JsonValueKind.String ? aProp.GetString() ?? "" : "";
                         organizer = !string.IsNullOrWhiteSpace(name) ? name : addr;
                     }
 
                     string joinUrl = "";
-                    if (evt.TryGetProperty("onlineMeeting", out var omObj) && omObj.TryGetProperty("joinUrl", out var jProp))
+                    if (evt.TryGetProperty("onlineMeeting", out var omObj) && 
+                        omObj.ValueKind == JsonValueKind.Object && 
+                        omObj.TryGetProperty("joinUrl", out var jProp) &&
+                        jProp.ValueKind == JsonValueKind.String)
                     {
                         joinUrl = jProp.GetString() ?? "";
                     }
-                    if (string.IsNullOrWhiteSpace(joinUrl) && evt.TryGetProperty("onlineMeetingUrl", out var omuProp))
+                    if (string.IsNullOrWhiteSpace(joinUrl) && 
+                        evt.TryGetProperty("onlineMeetingUrl", out var omuProp) &&
+                        omuProp.ValueKind == JsonValueKind.String)
                     {
                         joinUrl = omuProp.GetString() ?? "";
                     }
@@ -221,12 +238,12 @@ namespace TeamsBot.Server.Controllers
                     idCounter++;
                 }
 
-                return resultList;
+                return (resultList, "Success");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[CalendarController] Exception fetching graph meetings for {email}: {ex.Message}");
-                return null;
+                return (null, $"Exception: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
