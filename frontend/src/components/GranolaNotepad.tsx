@@ -214,27 +214,38 @@ export default function GranolaNotepad({
   const fetchCalendarData = async () => {
     setIsLoadingCalendar(true);
     try {
-      // 1. Check Status
-      const statusResult = await safeFetchJson(`${apiBaseUrl}/api/calendar/status?email=${encodeURIComponent(userEmail)}`);
-      if (statusResult.ok && statusResult.data) {
-        setIsCalendarConnected(Boolean(statusResult.data.connected));
-        setCalendarStatusMessage(statusResult.data.message || 'Calendar connection verified.');
+      // 1. Fetch Real Meetings directly from Microsoft Graph Calendar
+      const meetingsResult = await safeFetchJson(`${apiBaseUrl}/api/calendar/meetings?email=${encodeURIComponent(userEmail)}`);
+      
+      if (meetingsResult.ok && meetingsResult.data) {
+        const list = Array.isArray(meetingsResult.data.meetings) ? meetingsResult.data.meetings : [];
+        setCalendarEvents(list);
+        setIsCalendarConnected(true);
+        setCalendarStatusMessage(
+          list.length > 0
+            ? `Connected to Microsoft 365 Calendar for ${userEmail} (${list.length} events found).`
+            : `Connected to Microsoft 365 Calendar for ${userEmail}. No meetings scheduled for today.`
+        );
       } else {
         setIsCalendarConnected(false);
+        setCalendarEvents([]);
         setCalendarStatusMessage(
-          statusResult.status === 404 
-            ? `Backend endpoint not found on ${apiBaseUrl}. Ensure backend server is running and deployed.`
-            : `Could not reach Microsoft 365 calendar service at ${apiBaseUrl}.`
+          meetingsResult.status === 404
+            ? `Backend service at ${apiBaseUrl} returned 404. Please check deployment or network status.`
+            : `Could not connect to Microsoft 365 Calendar for ${userEmail}. Check Entra ID mailbox permissions.`
         );
       }
 
-      // 2. Fetch Events
-      const meetingsResult = await safeFetchJson(`${apiBaseUrl}/api/calendar/meetings?email=${encodeURIComponent(userEmail)}`);
-      if (meetingsResult.ok && meetingsResult.data?.meetings && Array.isArray(meetingsResult.data.meetings)) {
-        setCalendarEvents(meetingsResult.data.meetings);
-      } else {
-        setCalendarEvents([]);
-      }
+      // 2. Optional: Check status endpoint if available
+      try {
+        const statusResult = await safeFetchJson(`${apiBaseUrl}/api/calendar/status?email=${encodeURIComponent(userEmail)}`);
+        if (statusResult.ok && statusResult.data) {
+          setIsCalendarConnected(Boolean(statusResult.data.connected));
+          if (statusResult.data.message) {
+            setCalendarStatusMessage(statusResult.data.message);
+          }
+        }
+      } catch (_) {}
     } catch (e: any) {
       console.warn('Calendar fetch error:', e);
       setIsCalendarConnected(false);
